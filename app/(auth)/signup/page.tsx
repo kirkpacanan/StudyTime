@@ -1,17 +1,38 @@
 "use client";
 
+import { StudyTimeWordmark } from "@/components/StudyTimeLogo";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/useAuth";
 import { signUp } from "@/lib/auth";
+import { motion, useReducedMotion } from "framer-motion";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+const ease = [0.16, 1, 0.3, 1] as const;
+
+const container = {
+  hidden: {},
+  show: {
+    transition: { staggerChildren: 0.07, delayChildren: 0.04 },
+  },
+};
+
+const item = {
+  hidden: { opacity: 0, y: 12 },
+  show: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.38, ease },
+  },
+};
+
 export default function SignupPage() {
   const { user, ready, refreshUser } = useAuth();
   const router = useRouter();
+  const reduce = useReducedMotion();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -38,72 +59,112 @@ export default function SignupPage() {
 
   if (!ready) {
     return (
-      <Card className="p-6 md:p-8 text-center text-sm text-muted">
-        Preparing your workspace…
-      </Card>
+      <motion.div
+        initial={reduce ? false : { opacity: 0, scale: 0.98 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.35, ease }}
+      >
+        <Card className="auth-glass auth-glow-ring p-6 text-center text-sm text-muted md:p-8">
+          Preparing your workspace…
+        </Card>
+      </motion.div>
     );
   }
 
   return (
-    <Card className="p-6 md:p-8">
-      <h1 className="text-xl font-semibold text-text">Create your account</h1>
-      <p className="mt-1 text-sm text-muted">
-        Start monitoring focus and study performance.
-      </p>
-      <form className="mt-6 space-y-4" onSubmit={onSubmit}>
-        <div>
-          <label className="text-xs font-medium text-muted" htmlFor="name">
-            Name
-          </label>
-          <Input
-            id="name"
-            autoComplete="name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="mt-1"
-            placeholder="Alex"
-          />
-        </div>
-        <div>
-          <label className="text-xs font-medium text-muted" htmlFor="email">
-            Email
-          </label>
-          <Input
-            id="email"
-            type="email"
-            autoComplete="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="mt-1"
-            required
-          />
-        </div>
-        <div>
-          <label className="text-xs font-medium text-muted" htmlFor="password">
-            Password
-          </label>
-          <Input
-            id="password"
-            type="password"
-            autoComplete="new-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="mt-1"
-            required
-            minLength={6}
-          />
-        </div>
-        {err ? <p className="text-sm text-alert">{err}</p> : null}
-        <Button type="submit" className="w-full" disabled={loading}>
-          {loading ? "Creating…" : "Sign up"}
-        </Button>
-      </form>
-      <p className="mt-4 text-center text-sm text-muted">
-        Already have an account?{" "}
-        <Link className="font-medium text-primary hover:underline" href="/login">
-          Sign in
-        </Link>
-      </p>
-    </Card>
+    <motion.div
+      variants={container}
+      initial="hidden"
+      animate="show"
+      className="space-y-0"
+    >
+      <Card className="auth-glass auth-glow-ring overflow-hidden p-6 md:p-8">
+        <motion.div variants={item}>
+          <StudyTimeWordmark logoSize={44} className="mb-6" />
+        </motion.div>
+        <motion.h1
+          variants={item}
+          className="text-xl font-semibold tracking-tight text-text"
+        >
+          Create your account
+        </motion.h1>
+        <motion.p variants={item} className="mt-1 text-sm text-muted">
+          Start monitoring focus and study performance.
+        </motion.p>
+        <form className="mt-6 space-y-4" onSubmit={onSubmit}>
+          <motion.div variants={item}>
+            <label className="text-xs font-medium text-muted" htmlFor="name">
+              Name
+            </label>
+            <Input
+              id="name"
+              autoComplete="name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="mt-1 transition-shadow duration-200 focus:shadow-[0_0_0_3px_rgba(79,134,247,0.2)]"
+              placeholder="Alex"
+            />
+          </motion.div>
+          <motion.div variants={item}>
+            <label className="text-xs font-medium text-muted" htmlFor="email">
+              Email
+            </label>
+            <Input
+              id="email"
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="mt-1 transition-shadow duration-200 focus:shadow-[0_0_0_3px_rgba(79,134,247,0.2)]"
+              required
+            />
+          </motion.div>
+          <motion.div variants={item}>
+            <label
+              className="text-xs font-medium text-muted"
+              htmlFor="password"
+            >
+              Password
+            </label>
+            <Input
+              id="password"
+              type="password"
+              autoComplete="new-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="mt-1 transition-shadow duration-200 focus:shadow-[0_0_0_3px_rgba(79,134,247,0.2)]"
+              required
+              minLength={6}
+            />
+          </motion.div>
+          {err ? (
+            <motion.p
+              initial={{ opacity: 0, x: -6 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="text-sm text-alert"
+            >
+              {err}
+            </motion.p>
+          ) : null}
+          <motion.div variants={item}>
+            <Button type="submit" className="w-full" disabled={loading}>
+              {loading ? "Creating…" : "Sign up"}
+            </Button>
+          </motion.div>
+        </form>
+        <motion.p
+          variants={item}
+          className="mt-4 text-center text-sm text-muted"
+        >
+          Already have an account?{" "}
+          <Link
+            className="font-medium text-primary underline-offset-4 transition hover:underline"
+            href="/login"
+          >
+            Sign in
+          </Link>
+        </motion.p>
+      </Card>
+    </motion.div>
   );
 }

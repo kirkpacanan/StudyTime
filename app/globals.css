@@ -14,16 +14,70 @@
   --muted: #6b7280;
   --background: var(--bg);
   --foreground: var(--text);
+  /* Auth backdrop: same cell sizes in light/dark; minor line tuned per theme for equal weight */
+  --auth-grid-major-line: rgba(79, 134, 247, 0.14);
+  --auth-grid-minor-line: rgba(15, 23, 42, 0.06);
+  color-scheme: light;
+}
+
+.dark {
+  --bg: #070b14;
+  --surface: #0f172a;
+  --primary: #6b9cff;
+  --primary-soft: rgba(107, 156, 255, 0.16);
+  --success: #4ade80;
+  --alert: #fb7185;
+  --accent: #fde047;
+  --text: #f1f5f9;
+  --muted: #94a3b8;
+  --background: var(--bg);
+  --foreground: var(--text);
+  --auth-grid-major-line: rgba(79, 134, 247, 0.14);
+  --auth-grid-minor-line: rgba(148, 163, 184, 0.075);
+  color-scheme: dark;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
 }
 
 body {
   color: var(--text);
   background: var(--bg);
   font-family: var(--font-geist-sans), system-ui, sans-serif;
+  transition: background-color 0.35s ease, color 0.35s ease;
 }
 
 @layer utilities {
   .text-balance {
     text-wrap: balance;
+  }
+
+  .auth-glass {
+    @apply border border-white/50 bg-white/80 shadow-[0_8px_44px_-14px_rgba(79,134,247,0.38)] backdrop-blur-2xl;
+  }
+
+  .auth-glow-ring {
+    box-shadow:
+      0 0 0 1px rgba(79, 134, 247, 0.12),
+      0 0 40px -8px rgba(79, 134, 247, 0.25),
+      0 0 80px -20px rgba(72, 187, 120, 0.12);
+  }
+
+  .dark .auth-glass {
+    @apply border-cyan-400/15 bg-slate-950/70 shadow-[0_8px_48px_-10px_rgba(34,211,238,0.2)] backdrop-blur-2xl;
+  }
+
+  .dark .auth-glow-ring {
+    box-shadow:
+      0 0 0 1px rgba(34, 211, 238, 0.18),
+      0 0 48px -8px rgba(59, 130, 246, 0.4),
+      0 0 100px -24px rgba(34, 211, 238, 0.15);
   }
 }
