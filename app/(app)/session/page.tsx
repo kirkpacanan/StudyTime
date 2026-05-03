@@ -9,12 +9,17 @@ import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { useSessionLive } from "@/contexts/session-live-context";
 import { useAuth } from "@/hooks/useAuth";
-import { persistStudySession } from "@/hooks/useStudySession";
+import {
+  computeSessionStats,
+  persistStudySession,
+} from "@/hooks/useStudySession";
 import type { FocusFrameResult } from "@/lib/focus-detection";
 import { getSettings } from "@/lib/storage";
 import type { FocusSample, UserSettings } from "@/lib/types";
 import { motion } from "framer-motion";
-import { Brain, Timer } from "lucide-react";
+import { Brain, CheckCircle2, Sparkles, Timer, Video, X } from "lucide-react";
+import { cn } from "@/lib/cn";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const FocusCamera = dynamic(
@@ -22,7 +27,14 @@ const FocusCamera = dynamic(
     import("@/components/FocusCamera").then((m) => ({
       default: m.FocusCamera,
     })),
-  { ssr: false, loading: () => <p className="text-sm text-muted">Loading camera…</p> },
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex min-h-[200px] items-center justify-center bg-black/40 text-zinc-400 dark:text-zinc-500">
+        <p className="text-sm">Loading camera…</p>
+      </div>
+    ),
+  },
 );
 
 type Phase = "focus" | "break";
@@ -32,6 +44,24 @@ function fmt(sec: number) {
   const s = sec % 60;
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
+
+function fmtMsAsMin(ms: number) {
+  const m = Math.round(ms / 60000);
+  return m <= 0 ? "0 min" : `${m} min`;
+}
+
+type SessionEndSummary = {
+  saved: boolean;
+  startedAt: string;
+  endedAt: string;
+  focusMs: number;
+  breakMs: number;
+  pomodoroBlocks: number;
+  sampleCount: number;
+  averageFocus: number;
+  focusedRatio: number;
+  distractionEvents: number;
+};
 
 export default function SessionPage() {
   const { user } = useAuth();
@@ -56,8 +86,8 @@ export default function SessionPage() {
     eyesScore: 0,
     faceScore: 0,
   });
-  const [useManual, setUseManual] = useState(false);
-  const [manualScore, setManualScore] = useState(75);
+  const [summary, setSummary] = useState<SessionEndSummary | null>(null);
+  const focusCompletedRef = useRef(0);
 
   useEffect(() => {
     if (!user) return;
@@ -67,6 +97,19 @@ export default function SessionPage() {
   useEffect(() => {
     phaseRef.current = phase;
   }, [phase]);
+
+  useEffect(() => {
+    focusCompletedRef.current = focusCompleted;
+  }, [focusCompleted]);
+
+  useEffect(() => {
+    if (!summary) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSummary(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [summary]);
 
   const focusSec = (settings?.focusMinutes ?? 25) * 60;
   const shortBreakSec = (settings?.shortBreakMinutes ?? 5) * 60;
@@ -122,21 +165,37 @@ export default function SessionPage() {
   completeCurrentPhaseRef.current = completeCurrentPhase;
 
   const endSession = useCallback(() => {
+    const started = sessionStartedAtRef.current;
+    const samples = [...samplesRef.current];
+    const focusMs = focusMsRef.current;
+    const breakMs = breakMsRef.current;
+    const blocks = focusCompletedRef.current;
+    const endedAt = new Date().toISOString();
+
+    const stats = computeSessionStats(
+      samples,
+      focusThreshold,
+      focusMs,
+      breakMs,
+    );
+    let saved = false;
+    if (user && started && samples.length > 0) {
+      persistStudySession(
+        user.id,
+        started,
+        samples,
+        focusMs,
+        breakMs,
+        focusThreshold,
+      );
+      saved = true;
+    }
+
     setRunning(false);
     setPaused(false);
     resetLive();
     if (typeof document !== "undefined") document.title = "StudyTime";
-    const started = sessionStartedAtRef.current;
-    if (user && started && samplesRef.current.length > 0) {
-      persistStudySession(
-        user.id,
-        started,
-        samplesRef.current,
-        focusMsRef.current,
-        breakMsRef.current,
-        focusThreshold,
-      );
-    }
+
     sessionStartedAtRef.current = null;
     samplesRef.current = [];
     focusMsRef.current = 0;
@@ -146,6 +205,19 @@ export default function SessionPage() {
     phaseRef.current = "focus";
     setPhase("focus");
     setRemainingSec(0);
+
+    setSummary({
+      saved,
+      startedAt: started ?? endedAt,
+      endedAt,
+      focusMs,
+      breakMs,
+      pomodoroBlocks: blocks,
+      sampleCount: samples.length,
+      averageFocus: stats.averageFocus,
+      focusedRatio: stats.focusedRatio,
+      distractionEvents: stats.distractionEvents,
+    });
   }, [focusThreshold, resetLive, user]);
 
   useEffect(() => {
@@ -238,8 +310,9 @@ export default function SessionPage() {
 
   if (!user || !settings) {
     return (
-      <div className="text-sm text-muted">
-        Loading your session settings…
+      <div className="session-page flex min-h-[45vh] flex-col items-center justify-center gap-3">
+        <div className="h-10 w-10 animate-pulse rounded-full bg-primary/25 dark:bg-cyan-500/20" />
+        <p className="text-sm text-muted">Loading your session settings…</p>
       </div>
     );
   }
@@ -249,115 +322,128 @@ export default function SessionPage() {
   const timerOffset = timerCirc * (1 - (running ? phaseProgress : 0) / 100);
 
   return (
-    <div className="relative space-y-8">
-      <div className="pointer-events-none absolute -left-24 top-0 h-72 w-72 rounded-full bg-primary/20 blur-3xl dark:bg-cyan-500/15" />
-      <div className="pointer-events-none absolute -right-20 bottom-0 h-64 w-64 rounded-full bg-success/15 blur-3xl dark:bg-emerald-500/10" />
+    <div className="session-page relative space-y-8 md:space-y-10">
+      <div className="pointer-events-none absolute -left-24 top-0 h-72 w-72 rounded-full bg-primary/16 blur-3xl dark:bg-cyan-500/14" />
+      <div className="pointer-events-none absolute -right-20 bottom-0 h-64 w-64 rounded-full bg-success/14 blur-3xl dark:bg-emerald-500/12" />
 
       <motion.header
-        initial={{ opacity: 0, y: 8 }}
+        initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-        className="relative flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between"
+        transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
+        className="relative overflow-hidden rounded-[1.75rem] border border-slate-200/90 bg-gradient-to-br from-white via-sky-50/80 to-[#eef6ff] p-6 shadow-[0_20px_60px_-28px_rgba(79,134,247,0.2)] ring-1 ring-white/70 backdrop-blur-xl dark:border-white/10 dark:bg-gradient-to-br dark:from-[#080d16] dark:via-[#0f172a] dark:to-[#060a10] dark:shadow-[0_24px_70px_-32px_rgba(0,0,0,0.55)] dark:ring-0 md:p-8"
       >
-        <div>
-          <div className="mb-1 flex items-center gap-2 text-primary dark:text-cyan-300">
-            <Brain className="h-5 w-5" aria-hidden />
-            <span className="text-xs font-bold uppercase tracking-[0.2em]">
-              Session
-            </span>
+        <div className="pointer-events-none absolute -right-16 -top-20 h-48 w-48 rounded-full bg-primary/15 blur-3xl dark:bg-cyan-500/12" />
+        <div className="relative flex flex-col gap-5 md:flex-row md:items-start md:justify-between md:gap-8">
+          <div className="min-w-0 space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/[0.1] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-primary dark:border-cyan-500/25 dark:bg-cyan-500/10 dark:text-cyan-200">
+                <Sparkles className="h-3.5 w-3.5" aria-hidden />
+                Pomodoro
+              </span>
+              <span className="text-xs font-medium text-slate-500 dark:text-muted">
+                {settings.focusMinutes} min focus · Settings
+              </span>
+            </div>
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 hidden h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-primary/15 bg-white/80 text-primary shadow-sm dark:border-white/10 dark:bg-slate-800/90 dark:text-cyan-300 sm:flex">
+                <Brain className="h-5 w-5" aria-hidden />
+              </div>
+              <div className="min-w-0">
+                <h1 className="text-[clamp(1.65rem,3.5vw,2.5rem)] font-semibold leading-tight tracking-tight text-text">
+                  Deep focus{" "}
+                  <span className="bg-gradient-to-r from-primary via-sky-500 to-emerald-500 bg-clip-text text-transparent dark:from-sky-300 dark:via-cyan-300 dark:to-emerald-400">
+                    cockpit
+                  </span>
+                </h1>
+                <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600 dark:text-muted md:text-[15px] md:leading-relaxed">
+                  Timer, breaks, and optional live vision — eyes and face posture
+                  blend into one calm focus score you can trust while you work.
+                </p>
+              </div>
+            </div>
           </div>
-          <h1 className="text-3xl font-bold tracking-tight text-text sm:text-4xl">
-            Deep focus cockpit
-          </h1>
-          <p className="mt-1 max-w-xl text-sm text-muted">
-            Pomodoro timer plus live vision:{" "}
-            <strong className="font-medium text-text">eyes</strong> (openness)
-            and <strong className="font-medium text-text">face</strong>{" "}
-            (toward camera) both feed the focus score — watch the rings track
-            you in real time.
-          </p>
+          <div className="shrink-0 md:pt-1">
+            {running ? (
+              <Badge
+                tone={phase === "focus" ? "blue" : "green"}
+                className="px-3 py-1 text-xs"
+              >
+                {phase === "focus" ? "Focus block" : "Break"}
+              </Badge>
+            ) : (
+              <Badge tone="muted" className="px-3 py-1 text-xs">
+                Ready
+              </Badge>
+            )}
+          </div>
         </div>
-        {running ? (
-          <Badge tone={phase === "focus" ? "blue" : "green"} className="w-fit shrink-0">
-            {phase === "focus" ? "Focus block" : "Break"}
-          </Badge>
-        ) : (
-          <Badge tone="muted" className="w-fit shrink-0">
-            Ready
-          </Badge>
-        )}
       </motion.header>
 
-      <div className="relative grid gap-6 xl:grid-cols-12">
+      <div className="relative grid gap-6 md:gap-8 xl:grid-cols-12">
         <motion.section
-          initial={{ opacity: 0, y: 12 }}
+          initial={{ opacity: 0, y: 14 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.45, delay: 0.05, ease: [0.16, 1, 0.3, 1] }}
-          className="space-y-4 xl:col-span-7"
+          transition={{
+            duration: 0.45,
+            delay: 0.06,
+            ease: [0.16, 1, 0.3, 1],
+          }}
+          className="space-y-0 xl:col-span-7"
         >
-          <Card className="overflow-hidden p-1">
-            <div className="glass-inset p-4">
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <h2 className="flex items-center gap-2 text-sm font-semibold text-text">
-                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-primary/15 text-primary dark:bg-cyan-500/15 dark:text-cyan-300">
-                    <Timer className="h-4 w-4" aria-hidden />
-                  </span>
-                  Live vision
-                </h2>
-                <label className="flex cursor-pointer items-center gap-2 text-xs text-muted">
-                  <input
-                    type="checkbox"
-                    checked={useManual}
-                    onChange={(e) => setUseManual(e.target.checked)}
-                    className="rounded border-primary/30 text-primary focus:ring-primary"
-                  />
-                  Manual slider
-                </label>
+          <Card className="overflow-hidden p-0">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/80 px-5 py-4 dark:border-white/10 md:px-6">
+              <h2 className="flex items-center gap-3 text-base font-semibold tracking-tight text-text">
+                <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200/90 bg-slate-50 text-primary dark:border-white/10 dark:bg-slate-800 dark:text-cyan-300">
+                  <Video className="h-5 w-5" aria-hidden />
+                </span>
+                Live vision
+              </h2>
+              {!webcamEnabled ? (
+                <Link
+                  href="/settings"
+                  className="text-xs font-medium text-primary underline-offset-4 hover:underline dark:text-cyan-300"
+                >
+                  Enable camera in Settings
+                </Link>
+              ) : null}
+            </div>
+            <div className="p-5 md:p-6">
+              <div className="overflow-hidden rounded-xl border border-slate-200/90 shadow-sm dark:border-white/10 dark:shadow-none">
+                <FocusCamera
+                  enabled={webcamEnabled}
+                  active={running && !paused && phase === "focus"}
+                  focusThreshold={focusThreshold}
+                  distractionThreshold={distractionThreshold}
+                  onSample={onSample}
+                />
               </div>
-              {(useManual || !webcamEnabled) && (
-                <div className="mb-4 rounded-xl border border-white/55 bg-white/[0.26] p-3 backdrop-blur-xl backdrop-saturate-200 dark:border-white/[0.16] dark:bg-slate-900/[0.36]">
-                  <label
-                    className="text-xs font-medium text-muted"
-                    htmlFor="manual"
-                  >
-                    Assumed focus (eyes &amp; face)
-                  </label>
-                  <input
-                    id="manual"
-                    type="range"
-                    min={0}
-                    max={100}
-                    value={manualScore}
-                    onChange={(e) => setManualScore(Number(e.target.value))}
-                    className="mt-2 w-full accent-primary"
-                  />
-                  <p className="mt-1 text-xs tabular-nums text-muted">
-                    {manualScore}% · both signals follow this value
-                  </p>
-                </div>
-              )}
-              <FocusCamera
-                enabled={webcamEnabled && !useManual}
-                active={running && !paused && phase === "focus"}
-                focusThreshold={focusThreshold}
-                distractionThreshold={distractionThreshold}
-                manualScore={useManual || !webcamEnabled ? manualScore : null}
-                onSample={onSample}
-              />
             </div>
           </Card>
         </motion.section>
 
         <motion.section
-          initial={{ opacity: 0, y: 12 }}
+          initial={{ opacity: 0, y: 14 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.45, delay: 0.1, ease: [0.16, 1, 0.3, 1] }}
-          className="flex flex-col gap-4 xl:col-span-5"
+          transition={{
+            duration: 0.45,
+            delay: 0.1,
+            ease: [0.16, 1, 0.3, 1],
+          }}
+          className="flex flex-col gap-5 xl:col-span-5"
         >
-          <Card className="relative overflow-hidden p-6">
-            <div className="absolute right-4 top-4 h-24 w-24 rounded-full bg-primary/10 blur-2xl dark:bg-cyan-500/10" />
-            <div className="relative flex flex-col items-center gap-4 sm:flex-row sm:items-start sm:justify-between">
-              <div className="relative flex h-40 w-40 shrink-0 items-center justify-center">
+          <Card className="relative overflow-hidden p-0">
+            <div className="pointer-events-none absolute -right-8 top-0 h-36 w-36 rounded-full bg-primary/12 blur-3xl dark:bg-cyan-500/12" />
+            <div className="pointer-events-none absolute bottom-0 left-0 h-28 w-28 rounded-full bg-success/10 blur-3xl dark:bg-emerald-500/10" />
+            <div className="relative border-b border-slate-200/80 bg-gradient-to-r from-white/45 to-transparent px-6 py-4 backdrop-blur-md dark:border-white/10 dark:from-slate-900/40 dark:to-transparent">
+              <div className="flex items-center gap-2 text-sm font-semibold text-text">
+                <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-primary/15 bg-white/90 text-primary dark:border-white/10 dark:bg-slate-800 dark:text-cyan-300">
+                  <Timer className="h-4 w-4" aria-hidden />
+                </span>
+                Timer &amp; controls
+              </div>
+            </div>
+            <div className="relative flex flex-col gap-5 p-6 md:flex-row md:items-start md:justify-between md:gap-6 md:p-7">
+              <div className="relative mx-auto flex h-40 w-40 shrink-0 items-center justify-center md:mx-0">
                 <svg
                   className="-rotate-90 text-primary-soft dark:text-slate-800"
                   width="160"
@@ -384,13 +470,13 @@ export default function SessionPage() {
                     strokeLinecap="round"
                     className={
                       phase === "focus"
-                        ? "text-primary transition-[stroke-dashoffset] duration-1000 dark:text-cyan-400"
-                        : "text-success transition-[stroke-dashoffset] duration-1000 dark:text-emerald-400"
+                        ? "text-primary drop-shadow-[0_0_12px_rgba(79,134,247,0.35)] transition-[stroke-dashoffset] duration-1000 ease-out dark:text-cyan-400 dark:drop-shadow-[0_0_14px_rgba(34,211,238,0.25)]"
+                        : "text-success drop-shadow-[0_0_12px_rgba(72,187,120,0.3)] transition-[stroke-dashoffset] duration-1000 ease-out dark:text-emerald-400"
                     }
                   />
                 </svg>
                 <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-muted">
                     {running ? (phase === "focus" ? "Focus" : "Break") : "Timer"}
                   </p>
                   <p className="text-3xl font-bold tabular-nums tracking-tight text-text sm:text-4xl">
@@ -398,16 +484,26 @@ export default function SessionPage() {
                   </p>
                 </div>
               </div>
-              <div className="min-w-0 flex-1 space-y-3 text-center sm:text-left">
-                <Progress value={running ? phaseProgress : 0} className="h-1.5" />
-                <p className="text-xs text-muted">
-                  Blocks done:{" "}
-                  <span className="font-semibold text-text">{focusCompleted}</span>{" "}
-                  · long break every {longEvery}
+              <div className="min-w-0 flex-1 space-y-4 text-center md:text-left">
+                <Progress
+                  value={running ? phaseProgress : 0}
+                  className="h-2 rounded-full"
+                />
+                <p className="text-xs leading-relaxed text-slate-600 dark:text-muted">
+                  Blocks done{" "}
+                  <span className="font-semibold tabular-nums text-text">
+                    {focusCompleted}
+                  </span>{" "}
+                  · long break every{" "}
+                  <span className="font-semibold text-text">{longEvery}</span>
                 </p>
-                <div className="flex flex-wrap justify-center gap-2 sm:justify-start">
+                <div className="flex flex-wrap justify-center gap-2 md:justify-start">
                   {!running ? (
-                    <Button type="button" onClick={startSession}>
+                    <Button
+                      type="button"
+                      className="px-8 shadow-[0_10px_32px_-10px_rgba(79,134,247,0.45)] dark:shadow-[0_10px_32px_-10px_rgba(34,211,238,0.22)]"
+                      onClick={startSession}
+                    >
                       Start session
                     </Button>
                   ) : (
@@ -429,34 +525,41 @@ export default function SessionPage() {
             </div>
           </Card>
 
-          <Card className="border-primary/15 p-5 dark:border-cyan-500/15">
-            <p className="mb-4 text-center text-xs font-medium uppercase tracking-wide text-muted">
-              Composite focus
-            </p>
-            <div className="flex flex-col items-center gap-4">
-              <FocusGauge value={lastSample.score} state={lastSample.state} />
-              <Badge
-                tone={
-                  lastSample.state === "focused"
-                    ? "blue"
-                    : lastSample.state === "drifting"
-                      ? "yellow"
-                      : lastSample.state === "distracted" ||
-                          lastSample.state === "away"
-                        ? "red"
-                        : "muted"
-                }
-              >
-                {lastSample.state}
-              </Badge>
-              <FocusSignalBars
-                eyesScore={lastSample.eyesScore}
-                faceScore={lastSample.faceScore}
-              />
-              <p className="text-center text-[11px] leading-relaxed text-muted">
+          <Card className="overflow-hidden p-0">
+            <div className="border-b border-slate-200/80 bg-gradient-to-r from-primary/[0.06] to-transparent px-6 py-4 dark:border-white/10 dark:from-cyan-500/[0.08] dark:to-transparent">
+              <h3 className="text-base font-semibold tracking-tight text-text">
+                Live focus signal
+              </h3>
+              <p className="mt-1 text-xs text-slate-600 dark:text-muted">
+                Composite score from eyes + face
+              </p>
+            </div>
+            <div className="space-y-5 p-6 md:p-7">
+              <div className="flex flex-col items-center gap-4">
+                <FocusGauge value={lastSample.score} state={lastSample.state} />
+                <Badge
+                  tone={
+                    lastSample.state === "focused"
+                      ? "blue"
+                      : lastSample.state === "drifting"
+                        ? "yellow"
+                        : lastSample.state === "distracted" ||
+                            lastSample.state === "away"
+                          ? "red"
+                          : "muted"
+                  }
+                >
+                  {lastSample.state}
+                </Badge>
+                <FocusSignalBars
+                  eyesScore={lastSample.eyesScore}
+                  faceScore={lastSample.faceScore}
+                />
+              </div>
+              <p className="rounded-xl border border-slate-200/70 bg-slate-50/50 px-4 py-3 text-center text-[11px] leading-relaxed text-slate-600 dark:border-white/10 dark:bg-slate-900/40 dark:text-muted">
                 Score blends{" "}
                 <span className="font-medium text-text">eyes</span> (~50%) and{" "}
-                <span className="font-medium text-text">face</span> (~42%) plus
+                <span className="font-medium text-text">face</span> (~42%) with
                 light expression dampening. Focused ≥{focusThreshold}% · drifting
                 between · distracted &lt;{distractionThreshold}%.
               </p>
@@ -464,6 +567,136 @@ export default function SessionPage() {
           </Card>
         </motion.section>
       </div>
+
+      {summary ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="session-summary-title"
+        >
+          <button
+            type="button"
+            className="absolute inset-0 bg-slate-950/55 backdrop-blur-sm dark:bg-black/60"
+            aria-label="Close summary"
+            onClick={() => setSummary(null)}
+          />
+          <Card className="relative z-10 w-full max-w-md overflow-hidden p-0 shadow-2xl ring-1 ring-slate-200/80 dark:ring-white/10">
+            <div className="flex items-start justify-between gap-3 border-b border-slate-200/80 px-5 py-4 dark:border-white/10 sm:px-6">
+              <div className="min-w-0">
+                <p
+                  id="session-summary-title"
+                  className="text-lg font-semibold tracking-tight text-text"
+                >
+                  Session summary
+                </p>
+                <p className="mt-1 text-xs text-muted">
+                  {new Date(summary.startedAt).toLocaleString()} →{" "}
+                  {new Date(summary.endedAt).toLocaleTimeString()}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="rounded-lg p-1.5 text-muted hover:bg-slate-100 hover:text-text dark:hover:bg-white/10"
+                onClick={() => setSummary(null)}
+                aria-label="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="space-y-4 px-5 py-5 sm:px-6">
+              {summary.saved ? (
+                <p className="flex items-center gap-2 text-sm text-success dark:text-emerald-400">
+                  <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden />
+                  Saved to your history — it will show on the dashboard and
+                  reports.
+                </p>
+              ) : (
+                <p className="text-sm leading-relaxed text-slate-600 dark:text-muted">
+                  Nothing was saved. Turn on the camera in Settings and run a
+                  focus block so we can log samples from your session.
+                </p>
+              )}
+              <dl className="grid grid-cols-2 gap-3 text-sm">
+                <div className="rounded-lg border border-slate-200/80 bg-slate-50/80 px-3 py-2.5 dark:border-white/10 dark:bg-slate-900/40">
+                  <dt className="text-[11px] font-medium uppercase tracking-wide text-muted">
+                    Focus time
+                  </dt>
+                  <dd className="mt-0.5 font-semibold tabular-nums text-text">
+                    {fmtMsAsMin(summary.focusMs)}
+                  </dd>
+                </div>
+                <div className="rounded-lg border border-slate-200/80 bg-slate-50/80 px-3 py-2.5 dark:border-white/10 dark:bg-slate-900/40">
+                  <dt className="text-[11px] font-medium uppercase tracking-wide text-muted">
+                    Break time
+                  </dt>
+                  <dd className="mt-0.5 font-semibold tabular-nums text-text">
+                    {fmtMsAsMin(summary.breakMs)}
+                  </dd>
+                </div>
+                <div className="rounded-lg border border-slate-200/80 bg-slate-50/80 px-3 py-2.5 dark:border-white/10 dark:bg-slate-900/40">
+                  <dt className="text-[11px] font-medium uppercase tracking-wide text-muted">
+                    Focus blocks done
+                  </dt>
+                  <dd className="mt-0.5 font-semibold tabular-nums text-text">
+                    {summary.pomodoroBlocks}
+                  </dd>
+                </div>
+                <div className="rounded-lg border border-slate-200/80 bg-slate-50/80 px-3 py-2.5 dark:border-white/10 dark:bg-slate-900/40">
+                  <dt className="text-[11px] font-medium uppercase tracking-wide text-muted">
+                    Samples logged
+                  </dt>
+                  <dd className="mt-0.5 font-semibold tabular-nums text-text">
+                    {summary.sampleCount}
+                  </dd>
+                </div>
+                <div className="rounded-lg border border-slate-200/80 bg-slate-50/80 px-3 py-2.5 dark:border-white/10 dark:bg-slate-900/40">
+                  <dt className="text-[11px] font-medium uppercase tracking-wide text-muted">
+                    Avg focus
+                  </dt>
+                  <dd className="mt-0.5 font-semibold tabular-nums text-text">
+                    {summary.sampleCount > 0
+                      ? `${summary.averageFocus}%`
+                      : "—"}
+                  </dd>
+                </div>
+                <div className="rounded-lg border border-slate-200/80 bg-slate-50/80 px-3 py-2.5 dark:border-white/10 dark:bg-slate-900/40">
+                  <dt className="text-[11px] font-medium uppercase tracking-wide text-muted">
+                    Time ≥ threshold
+                  </dt>
+                  <dd className="mt-0.5 font-semibold tabular-nums text-text">
+                    {summary.sampleCount > 0
+                      ? `${summary.focusedRatio}%`
+                      : "—"}
+                  </dd>
+                </div>
+                <div className="col-span-2 rounded-lg border border-slate-200/80 bg-slate-50/80 px-3 py-2.5 dark:border-white/10 dark:bg-slate-900/40">
+                  <dt className="text-[11px] font-medium uppercase tracking-wide text-muted">
+                    Distraction dips (away / distracted)
+                  </dt>
+                  <dd className="mt-0.5 font-semibold tabular-nums text-text">
+                    {summary.distractionEvents}
+                  </dd>
+                </div>
+              </dl>
+              <div className="flex flex-wrap gap-2 pt-1">
+                <Button type="button" onClick={() => setSummary(null)}>
+                  Done
+                </Button>
+                <Link
+                  href="/dashboard"
+                  className={cn(
+                    "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition duration-200 ease-out active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ring-offset-bg",
+                    "glass-button-secondary",
+                  )}
+                >
+                  Dashboard
+                </Link>
+              </div>
+            </div>
+          </Card>
+        </div>
+      ) : null}
     </div>
   );
 }

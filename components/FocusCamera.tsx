@@ -5,7 +5,6 @@ import {
   type Landmark68,
 } from "@/lib/focus-detection";
 import type { FocusFrameResult } from "@/lib/focus-detection";
-import type { FocusSampleState } from "@/lib/types";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 type Props = {
@@ -13,7 +12,6 @@ type Props = {
   active: boolean;
   focusThreshold: number;
   distractionThreshold: number;
-  manualScore: number | null;
   onSample: (sample: FocusFrameResult) => void;
 };
 
@@ -153,7 +151,6 @@ export function FocusCamera({
   active,
   focusThreshold,
   distractionThreshold,
-  manualScore,
   onSample,
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -167,11 +164,11 @@ export function FocusCamera({
   const onSampleRef = useRef(onSample);
 
   useEffect(() => {
-    if (enabled && modelsReady && active && manualScore === null) {
+    if (enabled && modelsReady && active) {
       lastFaceAtRef.current = Date.now();
       smoothedRef.current = null;
     }
-  }, [enabled, modelsReady, active, manualScore]);
+  }, [enabled, modelsReady, active]);
   onSampleRef.current = onSample;
 
   const stopStream = useCallback(() => {
@@ -241,25 +238,6 @@ export function FocusCamera({
       if (!video || video.readyState < 2) return;
       if (!active) {
         clearHud(canvas);
-        return;
-      }
-
-      if (manualScore !== null) {
-        clearHud(canvas);
-        const state: FocusSampleState =
-          manualScore >= focusThreshold
-            ? "focused"
-            : manualScore < distractionThreshold
-              ? "distracted"
-              : "drifting";
-        onSampleRef.current({
-          score: manualScore,
-          state,
-          rawEar: 0,
-          hasFace: true,
-          eyesScore: manualScore,
-          faceScore: manualScore,
-        });
         return;
       }
 
@@ -366,17 +344,14 @@ export function FocusCamera({
     modelsReady,
     focusThreshold,
     distractionThreshold,
-    manualScore,
   ]);
 
   return (
-    <div
-      className="overflow-hidden rounded-[22px] border border-[var(--cc-border)] bg-[var(--cc-inset)] shadow-[0_1px_0_0_var(--glass-highlight)_inset,0_0_0_1px_var(--cc-rim)] [-webkit-backdrop-filter:blur(36px)_saturate(1.8)] [backdrop-filter:blur(36px)_saturate(1.8)] dark:bg-[var(--cc-inset)] dark:shadow-[0_1px_0_0_rgba(255,255,255,0.16)_inset,0_0_0_1px_rgba(0,0,0,0.45),0_0_48px_-12px_rgba(34,211,238,0.1)]"
-    >
-      <div className="relative aspect-video w-full overflow-hidden bg-gradient-to-b from-primary-soft/50 to-slate-900/10 dark:from-slate-900 dark:to-black/40">
+    <div className="flex min-h-0 flex-col">
+      <div className="relative aspect-video w-full overflow-hidden bg-black">
         <video
           ref={videoRef}
-          className="h-full w-full object-cover opacity-[0.92]"
+          className="h-full w-full object-cover"
           playsInline
           muted
         />
@@ -386,19 +361,19 @@ export function FocusCamera({
           aria-hidden
         />
         {!enabled ? (
-          <div className="absolute inset-0 flex items-center justify-center bg-bg/85 p-4 text-center text-sm text-muted backdrop-blur-sm">
+          <div className="absolute inset-0 flex items-center justify-center bg-neutral-950/85 p-4 text-center text-sm text-zinc-300">
             Webcam disabled in Settings.
           </div>
         ) : null}
         {enabled && modelsReady && !error ? (
           <div className="pointer-events-none absolute left-3 top-3 flex flex-wrap gap-2">
-            <span className="rounded-full bg-black/55 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-white backdrop-blur-md">
+            <span className="rounded-full bg-black/65 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-white">
               Live track
             </span>
           </div>
         ) : null}
       </div>
-      <div className="border-t border-[var(--cc-border)] px-3 py-2.5 text-xs text-muted backdrop-blur-lg">
+      <div className="border-t border-slate-200/90 bg-slate-100 px-3 py-2.5 text-xs text-slate-600 dark:border-white/10 dark:bg-zinc-950 dark:text-zinc-400">
         {error ? (
           <span className="text-alert">{error}</span>
         ) : (

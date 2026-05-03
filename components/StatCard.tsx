@@ -2,6 +2,23 @@ import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/cn";
 import type { LucideIcon } from "lucide-react";
 
+const accentTop: Record<"blue" | "green" | "yellow" | "muted", string> = {
+  blue: "from-primary via-sky-500 to-primary",
+  green: "from-success via-emerald-400 to-success",
+  yellow: "from-accent via-amber-400 to-accent",
+  muted:
+    "from-slate-300 via-slate-400 to-slate-300 dark:from-slate-600 dark:via-slate-500 dark:to-slate-600",
+};
+
+const iconSurface: Record<"blue" | "green" | "yellow" | "muted", string> = {
+  blue: "bg-primary/12 text-primary ring-primary/15",
+  green: "bg-success/12 text-success ring-success/15",
+  yellow:
+    "bg-accent/15 text-amber-800 ring-amber-500/20 dark:text-accent dark:ring-accent/25",
+  muted: "bg-muted/12 text-muted ring-muted/20",
+};
+
+/** One layout for all KPI tiles: equal min height, type scale, and icon frame. */
 export function StatCard({
   title,
   value,
@@ -15,37 +32,47 @@ export function StatCard({
   icon: LucideIcon;
   accent?: "blue" | "green" | "yellow" | "muted";
 }) {
-  const ring =
-    accent === "green"
-      ? "text-success"
-      : accent === "yellow"
-        ? "text-accent"
-        : accent === "muted"
-          ? "text-muted"
-          : "text-primary";
   return (
-    <Card className="flex h-full min-h-[9.25rem] w-full min-w-0 flex-col p-4 md:p-5">
-      <div className="flex min-h-0 min-w-0 flex-1 items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted">
-            {title}
-          </p>
-          <p className="mt-2 truncate text-2xl font-semibold tabular-nums tracking-tight text-text">
+    <Card
+      className={cn(
+        "group relative flex h-full min-h-[12.25rem] w-full min-w-0 flex-col overflow-hidden p-0 transition duration-300 ease-out md:min-h-[12.5rem]",
+        "hover:-translate-y-1 hover:shadow-[0_18px_48px_-18px_rgba(79,134,247,0.16)] dark:hover:shadow-[0_24px_56px_-20px_rgba(0,0,0,0.55)]",
+      )}
+    >
+      <div
+        className={cn(
+          "h-1 w-full shrink-0 bg-gradient-to-r",
+          accentTop[accent],
+        )}
+        aria-hidden
+      />
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col p-5 md:p-5">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-0">
+          <div className="flex items-start justify-between gap-3">
+            <p className="min-w-0 flex-1 text-[13px] font-medium leading-snug tracking-tight text-muted">
+              {title}
+            </p>
+            <div
+              className={cn(
+                "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ring-1 ring-inset backdrop-blur-sm transition duration-300 group-hover:scale-[1.04]",
+                iconSurface[accent],
+              )}
+            >
+              <Icon
+                className="h-5 w-5 shrink-0"
+                strokeWidth={2}
+                aria-hidden
+              />
+            </div>
+          </div>
+          <p className="mt-3 break-words text-3xl font-semibold tabular-nums tracking-tight text-text [overflow-wrap:anywhere]">
             {value}
           </p>
           {hint ? (
-            <p className="mt-1 line-clamp-2 text-xs leading-snug text-muted">
+            <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-muted">
               {hint}
             </p>
           ) : null}
-        </div>
-        <div
-          className={cn(
-            "glass-icon-tile flex h-10 w-10 shrink-0 items-center justify-center",
-            ring,
-          )}
-        >
-          <Icon className="h-5 w-5" aria-hidden />
         </div>
       </div>
     </Card>
