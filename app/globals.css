@@ -1,0 +1,29 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #f7fafd;
+  --surface: #ffffff;
+  --primary: #4f86f7;
+  --primary-soft: #e6effe;
+  --success: #48bb78;
+  --alert: #f26a6a;
+  --accent: #f6c453;
+  --text: #1f2937;
+  --muted: #6b7280;
+  --background: var(--bg);
+  --foreground: var(--text);
+}
+
+body {
+  color: var(--text);
+  background: var(--bg);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
