@@ -2,13 +2,10 @@ import { cn } from "@/lib/cn";
 import type { ButtonHTMLAttributes } from "react";
 
 const variants = {
-  primary:
-    "bg-primary text-white shadow-sm hover:bg-primary/90 focus-visible:ring-primary",
-  secondary:
-    "bg-surface text-text border border-primary/15 hover:bg-primary-soft/60 focus-visible:ring-primary",
-  ghost: "text-text hover:bg-primary-soft/80 focus-visible:ring-primary",
-  danger:
-    "bg-alert text-white shadow-sm hover:bg-alert/90 focus-visible:ring-alert",
+  primary: "glass-button-primary focus-visible:ring-primary",
+  secondary: "glass-button-secondary focus-visible:ring-primary",
+  ghost: "glass-button-ghost focus-visible:ring-primary",
+  danger: "glass-button-danger focus-visible:ring-alert",
 } as const;
 
 export function Button({

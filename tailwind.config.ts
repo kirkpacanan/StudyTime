@@ -26,6 +26,10 @@ const config: Config = {
       boxShadow: {
         soft: "0 8px 30px rgba(79, 134, 247, 0.08)",
         "soft-dark": "0 8px 40px rgba(0, 0, 0, 0.45)",
+        "glass-float":
+          "0 1px 0 rgba(255,255,255,0.5) inset, 0 12px 40px -18px rgba(79, 134, 247, 0.14)",
+        "glass-float-dark":
+          "0 1px 0 rgba(255,255,255,0.06) inset, 0 16px 48px -12px rgba(0, 0, 0, 0.5)",
       },
     },
   },

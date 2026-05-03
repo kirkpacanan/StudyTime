@@ -415,7 +415,10 @@ export default function LoginPage() {
         animate={{ opacity: 1, scale: 1 }}
         transition={{ duration: 0.35, ease }}
       >
-        <Card className="auth-glass auth-glow-ring p-6 text-center text-sm text-muted md:p-8">
+        <Card
+          variant="auth"
+          className="auth-glass auth-glow-ring p-6 text-center text-sm text-muted md:p-8"
+        >
           Preparing your workspace…
         </Card>
       </motion.div>
@@ -643,7 +646,7 @@ export default function LoginPage() {
                         ref={startBtnRef}
                         type="button"
                         onClick={handleStart}
-                        className="relative z-10 overflow-hidden rounded-full bg-gradient-to-r from-primary via-indigo-500 to-primary px-14 py-4 text-lg font-semibold text-white shadow-[0_0_36px_-4px_rgba(79,134,247,0.55)] dark:from-cyan-500 dark:via-primary dark:to-indigo-500 dark:shadow-[0_0_44px_-4px_rgba(34,211,238,0.4)]"
+                        className="relative z-10 overflow-hidden rounded-full border border-white/50 bg-gradient-to-r from-primary/82 via-indigo-500/78 to-primary/82 px-14 py-4 text-lg font-semibold text-white shadow-[0_1px_0_0_rgba(255,255,255,0.3)_inset,0_8px_36px_-8px_rgba(79,134,247,0.5)] backdrop-blur-xl backdrop-saturate-200 dark:border-cyan-200/30 dark:from-cyan-500/75 dark:via-primary/72 dark:to-indigo-600/75 dark:shadow-[0_1px_0_0_rgba(255,255,255,0.12)_inset,0_8px_40px_-6px_rgba(34,211,238,0.38)]"
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.96 }}
                         transition={{
@@ -717,7 +720,7 @@ export default function LoginPage() {
             animate="show"
             className="space-y-0"
           >
-            <Card className="auth-glass auth-glow-ring overflow-hidden p-6 md:p-8">
+            <Card variant="auth" className="auth-glass auth-glow-ring overflow-hidden p-6 md:p-8">
               <motion.div variants={item}>
                 <StudyTimeWordmark logoSize={44} className="mb-6" />
               </motion.div>
@@ -744,7 +747,7 @@ export default function LoginPage() {
                     autoComplete="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="mt-1 transition-shadow duration-200 focus:shadow-[0_0_0_3px_rgba(79,134,247,0.2)] dark:focus:shadow-[0_0_0_3px_rgba(34,211,238,0.2)]"
+                    className="mt-1"
                     required
                   />
                 </motion.div>
@@ -761,7 +764,7 @@ export default function LoginPage() {
                     autoComplete="current-password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="mt-1 transition-shadow duration-200 focus:shadow-[0_0_0_3px_rgba(79,134,247,0.2)] dark:focus:shadow-[0_0_0_3px_rgba(34,211,238,0.2)]"
+                    className="mt-1"
                     required
                   />
                 </motion.div>

@@ -14,19 +14,11 @@ export function PageTransition({ children }: { children: React.ReactNode }) {
       <motion.div
         key={pathname}
         initial={
-          reduce
-            ? { opacity: 0 }
-            : { opacity: 0, y: 16, scale: 0.988, filter: "blur(6px)" }
+          reduce ? { opacity: 0 } : { opacity: 0, y: 16, scale: 0.985 }
         }
-        animate={
-          reduce
-            ? { opacity: 1 }
-            : { opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }
-        }
+        animate={reduce ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
         exit={
-          reduce
-            ? { opacity: 0 }
-            : { opacity: 0, y: -12, scale: 0.992, filter: "blur(4px)" }
+          reduce ? { opacity: 0 } : { opacity: 0, y: -12, scale: 0.99 }
         }
         transition={{
           duration: reduce ? 0.12 : 0.42,

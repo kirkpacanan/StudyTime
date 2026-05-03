@@ -30,7 +30,7 @@ export function Sidebar() {
     <>
       <motion.button
         type="button"
-        className="fixed left-4 top-4 z-40 flex h-10 w-10 items-center justify-center rounded-xl border border-primary/15 bg-surface/95 shadow-sm backdrop-blur md:hidden"
+        className="glass-floating-btn fixed left-4 top-4 z-40 flex h-10 w-10 items-center justify-center rounded-xl md:hidden"
         onClick={() => setOpen((o) => !o)}
         aria-label={open ? "Close menu" : "Open menu"}
         whileTap={{ scale: 0.94 }}
@@ -41,11 +41,11 @@ export function Sidebar() {
 
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-30 w-64 border-r border-primary/10 bg-surface/95 pt-16 shadow-soft backdrop-blur-md transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] dark:border-white/5 dark:bg-slate-950/95 dark:shadow-soft-dark md:static md:translate-x-0 md:pt-0",
+          "glass-sidebar fixed inset-y-0 left-0 z-30 w-64 pt-16 transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] md:static md:translate-x-0 md:pt-0",
           open ? "translate-x-0" : "-translate-x-full md:translate-x-0",
         )}
       >
-        <div className="flex h-16 items-center border-b border-primary/10 px-4 dark:border-white/5">
+        <div className="flex h-16 items-center border-b border-[var(--cc-border)] px-4">
           <StudyTimeWordmark
             logoSize={36}
             className="gap-2.5"
@@ -66,13 +66,13 @@ export function Sidebar() {
                     "relative block rounded-xl px-3 py-2.5 text-sm font-medium transition-colors duration-200",
                     active
                       ? "text-primary"
-                      : "text-muted hover:bg-primary-soft/50 hover:text-text",
+                      : "text-muted hover:bg-white/40 hover:text-text dark:hover:bg-white/[0.06]",
                   )}
                 >
                   {active ? (
                     <motion.span
                       layoutId="sidebar-active-pill"
-                      className="absolute inset-0 -z-0 rounded-xl bg-primary-soft shadow-[inset_0_0_0_1px_rgba(79,134,247,0.12)]"
+                      className="absolute inset-0 -z-0 rounded-xl border border-primary/15 bg-primary-soft/90 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.45)] backdrop-blur-md dark:border-primary/25 dark:bg-primary/15 dark:shadow-[inset_0_1px_0_0_rgba(255,255,255,0.08)]"
                       transition={{
                         type: "spring",
                         stiffness: 420,
@@ -96,7 +96,7 @@ export function Sidebar() {
       {open ? (
         <button
           type="button"
-          className="fixed inset-0 z-20 bg-text/25 backdrop-blur-[2px] transition-opacity duration-200 md:hidden"
+          className="fixed inset-0 z-20 bg-slate-900/25 backdrop-blur-md transition-opacity duration-200 dark:bg-black/40 md:hidden"
           aria-label="Close overlay"
           onClick={() => setOpen(false)}
         />

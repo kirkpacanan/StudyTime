@@ -24,22 +24,24 @@ export function StatCard({
           ? "text-muted"
           : "text-primary";
   return (
-    <Card className="p-4 md:p-5">
-      <div className="flex items-start justify-between gap-3">
-        <div>
+    <Card className="flex h-full min-h-[9.25rem] w-full min-w-0 flex-col p-4 md:p-5">
+      <div className="flex min-h-0 min-w-0 flex-1 items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
           <p className="text-xs font-medium uppercase tracking-wide text-muted">
             {title}
           </p>
-          <p className="mt-2 text-2xl font-semibold tracking-tight text-text">
+          <p className="mt-2 truncate text-2xl font-semibold tabular-nums tracking-tight text-text">
             {value}
           </p>
           {hint ? (
-            <p className="mt-1 text-xs text-muted">{hint}</p>
+            <p className="mt-1 line-clamp-2 text-xs leading-snug text-muted">
+              {hint}
+            </p>
           ) : null}
         </div>
         <div
           className={cn(
-            "flex h-10 w-10 items-center justify-center rounded-xl bg-primary-soft",
+            "glass-icon-tile flex h-10 w-10 shrink-0 items-center justify-center",
             ring,
           )}
         >

@@ -22,9 +22,9 @@ export function ThemeToggle({
       className={cn(
         "flex items-center justify-center rounded-xl border transition duration-200",
         variant === "floating" &&
-          "fixed right-4 top-4 z-[60] h-11 w-11 border-primary/20 bg-surface/90 text-text shadow-lg backdrop-blur-md hover:border-primary/40 hover:shadow-[0_0_24px_-4px_rgba(79,134,247,0.45)] dark:border-white/10 dark:bg-slate-900/80 dark:text-amber-200/90 dark:hover:border-cyan-400/30",
+          "glass-floating-btn fixed right-4 top-4 z-[60] h-11 w-11 text-text hover:border-primary/35 hover:shadow-[0_0_28px_-4px_rgba(79,134,247,0.35)] dark:text-amber-200/90 dark:hover:border-cyan-400/25",
         variant === "inline" &&
-          "h-9 w-9 border-primary/15 bg-surface/80 text-text hover:bg-primary-soft/60 dark:border-white/10 dark:bg-slate-800/80 dark:text-amber-200/90 dark:hover:bg-slate-700/80",
+          "h-9 w-9 border border-white/60 bg-white/[0.34] text-text shadow-[0_1px_0_0_rgba(255,255,255,0.65)_inset] backdrop-blur-xl backdrop-saturate-200 hover:bg-white/[0.46] dark:border-white/[0.2] dark:bg-slate-900/[0.4] dark:text-amber-200/90 dark:hover:bg-slate-900/[0.52]",
         className,
       )}
       aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}

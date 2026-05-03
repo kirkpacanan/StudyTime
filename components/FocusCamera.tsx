@@ -19,6 +19,9 @@ type Props = {
 
 const AWAY_MS = 5000;
 
+const LEFT_EYE_I = [36, 37, 38, 39, 40, 41] as const;
+const RIGHT_EYE_I = [42, 43, 44, 45, 46, 47] as const;
+
 function expressionsToRecord(
   ex: unknown,
 ): Record<string, number> | undefined {
@@ -31,6 +34,120 @@ function expressionsToRecord(
   return Object.keys(out).length ? out : undefined;
 }
 
+/** Map a point in video pixel space to the element box when video uses object-cover */
+function mapVideoPointToCover(
+  video: HTMLVideoElement,
+  elW: number,
+  elH: number,
+  px: number,
+  py: number,
+) {
+  const vw = video.videoWidth;
+  const vh = video.videoHeight;
+  if (!vw || !vh || !elW || !elH) return { x: 0, y: 0 };
+  const vr = vw / vh;
+  const er = elW / elH;
+  let scale: number;
+  let offX = 0;
+  let offY = 0;
+  if (vr > er) {
+    scale = elH / vh;
+    offX = (elW - vw * scale) / 2;
+  } else {
+    scale = elW / vw;
+    offY = (elH - vh * scale) / 2;
+  }
+  return { x: px * scale + offX, y: py * scale + offY };
+}
+
+function drawFaceHud(
+  canvas: HTMLCanvasElement,
+  video: HTMLVideoElement,
+  det: {
+    detection: { box: { x: number; y: number; width: number; height: number } };
+    landmarks: { positions: { x: number; y: number }[] };
+  },
+) {
+  const wrap = canvas.parentElement;
+  if (!wrap) return;
+  const rect = wrap.getBoundingClientRect();
+  const w = rect.width;
+  const h = rect.height;
+  const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+  canvas.width = Math.max(1, Math.floor(w * dpr));
+  canvas.height = Math.max(1, Math.floor(h * dpr));
+  canvas.style.width = `${w}px`;
+  canvas.style.height = `${h}px`;
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+
+  const box = det.detection.box;
+  const p1 = mapVideoPointToCover(video, w, h, box.x, box.y);
+  const p2 = mapVideoPointToCover(video, w, h, box.x + box.width, box.y + box.height);
+  ctx.strokeStyle = "rgba(59, 130, 246, 0.92)";
+  ctx.lineWidth = 2.5;
+  ctx.setLineDash([6, 4]);
+  ctx.strokeRect(p1.x, p1.y, p2.x - p1.x, p2.y - p1.y);
+  ctx.setLineDash([]);
+
+  const pos = det.landmarks.positions;
+  if (!pos?.length) return;
+
+  const vw = video.videoWidth;
+  const vh = video.videoHeight;
+  const vr = vw / vh;
+  const er = w / h;
+  const coverScale = vr > er ? h / vh : w / vw;
+
+  const eyeRadius = (idxs: readonly number[]) => {
+    let sx = 0;
+    let sy = 0;
+    let n = 0;
+    for (const i of idxs) {
+      const p = pos[i];
+      if (p) {
+        sx += p.x;
+        sy += p.y;
+        n++;
+      }
+    }
+    if (!n) return null;
+    const cx = sx / n;
+    const cy = sy / n;
+    const p36 = pos[36];
+    const p39 = pos[39];
+    const eyeW =
+      p36 && p39 ? Math.hypot(p39.x - p36.x, p39.y - p36.y) : 28;
+    const r = Math.max(7, eyeW * 0.36 * coverScale);
+    const c = mapVideoPointToCover(video, w, h, cx, cy);
+    return { ...c, r };
+  };
+
+  const le = eyeRadius(LEFT_EYE_I);
+  const re = eyeRadius(RIGHT_EYE_I);
+  ctx.strokeStyle = "rgba(34, 211, 238, 0.88)";
+  ctx.lineWidth = 2;
+  for (const e of [le, re]) {
+    if (!e) continue;
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+}
+
+function clearHud(canvas: HTMLCanvasElement | null) {
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  const w = canvas.width;
+  const h = canvas.height;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+}
+
 export function FocusCamera({
   enabled,
   active,
@@ -40,6 +157,7 @@ export function FocusCamera({
   onSample,
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const smoothedRef = useRef<number | null>(null);
   const lastFaceAtRef = useRef<number>(Date.now());
@@ -48,7 +166,6 @@ export function FocusCamera({
   const [modelsReady, setModelsReady] = useState(false);
   const onSampleRef = useRef(onSample);
 
-  /** Reset away-timer when monitoring starts, or "away" fires immediately (clock was set at mount). */
   useEffect(() => {
     if (enabled && modelsReady && active && manualScore === null) {
       lastFaceAtRef.current = Date.now();
@@ -67,6 +184,7 @@ export function FocusCamera({
       stopStream();
       setModelsReady(false);
       setStatus("Camera off — use manual focus or enable in Settings.");
+      clearHud(canvasRef.current);
       return;
     }
     let cancelled = false;
@@ -99,7 +217,7 @@ export function FocusCamera({
         ]);
         if (cancelled) return;
         setModelsReady(true);
-        setStatus("Camera ready");
+        setStatus("Tracking eyes & face");
       } catch (e) {
         const msg =
           e instanceof Error ? e.message : "Could not access the camera.";
@@ -119,10 +237,15 @@ export function FocusCamera({
 
     const tick = async () => {
       const video = videoRef.current;
+      const canvas = canvasRef.current;
       if (!video || video.readyState < 2) return;
-      if (!active) return;
+      if (!active) {
+        clearHud(canvas);
+        return;
+      }
 
       if (manualScore !== null) {
+        clearHud(canvas);
         const state: FocusSampleState =
           manualScore >= focusThreshold
             ? "focused"
@@ -134,6 +257,8 @@ export function FocusCamera({
           state,
           rawEar: 0,
           hasFace: true,
+          eyesScore: manualScore,
+          faceScore: manualScore,
         });
         return;
       }
@@ -158,12 +283,27 @@ export function FocusCamera({
           landmarks as unknown as Landmark68 | undefined,
           expressions,
           {
-          focusThreshold,
-          distractionThreshold,
-          prevSmoothed: smoothedRef.current,
-          smoothAlpha: 0.28,
-        },
+            focusThreshold,
+            distractionThreshold,
+            prevSmoothed: smoothedRef.current,
+            smoothAlpha: 0.28,
+          },
         );
+
+        if (det && canvas && video) {
+          drawFaceHud(
+            canvas,
+            video,
+            det as {
+              detection: {
+                box: { x: number; y: number; width: number; height: number };
+              };
+              landmarks: { positions: { x: number; y: number }[] };
+            },
+          );
+        } else {
+          clearHud(canvas);
+        }
 
         if (base.hasFace) {
           smoothedRef.current = base.score;
@@ -174,29 +314,38 @@ export function FocusCamera({
         let out: FocusFrameResult = base;
         if (!base.hasFace && awayFor > AWAY_MS) {
           smoothedRef.current = 0;
+          clearHud(canvas);
           out = {
             score: 0,
             state: "away",
             rawEar: base.rawEar,
             hasFace: false,
+            eyesScore: 0,
+            faceScore: 0,
           };
         } else if (!base.hasFace && awayFor <= AWAY_MS) {
+          clearHud(canvas);
           out = {
             score: Math.round(smoothedRef.current ?? 35),
             state: "drifting",
             rawEar: 0,
             hasFace: false,
+            eyesScore: 0,
+            faceScore: 0,
           };
         }
 
         onSampleRef.current(out);
       } catch {
-        // Transient tensor / WebGL errors should not look like "stepped away"
+        clearHud(canvasRef.current);
+        const s = Math.round(smoothedRef.current ?? 30);
         onSampleRef.current({
-          score: Math.round(smoothedRef.current ?? 30),
+          score: s,
           state: "drifting",
           rawEar: 0,
           hasFace: false,
+          eyesScore: s,
+          faceScore: s,
         });
       }
     };
@@ -204,7 +353,12 @@ export function FocusCamera({
     const id = window.setInterval(() => {
       void tick();
     }, 480);
-    return () => clearInterval(id);
+    return () => {
+      window.clearInterval(id);
+      // Intentionally read ref at teardown so we clear the mounted canvas
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- latest node on unmount
+      clearHud(canvasRef.current);
+    };
   }, [
     enabled,
     active,
@@ -216,21 +370,35 @@ export function FocusCamera({
   ]);
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-primary/10 bg-surface shadow-sm">
-      <div className="relative aspect-video w-full bg-primary-soft/40">
+    <div
+      className="overflow-hidden rounded-[22px] border border-[var(--cc-border)] bg-[var(--cc-inset)] shadow-[0_1px_0_0_var(--glass-highlight)_inset,0_0_0_1px_var(--cc-rim)] [-webkit-backdrop-filter:blur(36px)_saturate(1.8)] [backdrop-filter:blur(36px)_saturate(1.8)] dark:bg-[var(--cc-inset)] dark:shadow-[0_1px_0_0_rgba(255,255,255,0.16)_inset,0_0_0_1px_rgba(0,0,0,0.45),0_0_48px_-12px_rgba(34,211,238,0.1)]"
+    >
+      <div className="relative aspect-video w-full overflow-hidden bg-gradient-to-b from-primary-soft/50 to-slate-900/10 dark:from-slate-900 dark:to-black/40">
         <video
           ref={videoRef}
-          className="h-full w-full object-cover opacity-90"
+          className="h-full w-full object-cover opacity-[0.92]"
           playsInline
           muted
         />
+        <canvas
+          ref={canvasRef}
+          className="pointer-events-none absolute inset-0 h-full w-full"
+          aria-hidden
+        />
         {!enabled ? (
-          <div className="absolute inset-0 flex items-center justify-center bg-bg/80 p-4 text-center text-sm text-muted">
+          <div className="absolute inset-0 flex items-center justify-center bg-bg/85 p-4 text-center text-sm text-muted backdrop-blur-sm">
             Webcam disabled in Settings.
           </div>
         ) : null}
+        {enabled && modelsReady && !error ? (
+          <div className="pointer-events-none absolute left-3 top-3 flex flex-wrap gap-2">
+            <span className="rounded-full bg-black/55 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-white backdrop-blur-md">
+              Live track
+            </span>
+          </div>
+        ) : null}
       </div>
-      <div className="border-t border-primary/10 px-3 py-2 text-xs text-muted">
+      <div className="border-t border-[var(--cc-border)] px-3 py-2.5 text-xs text-muted backdrop-blur-lg">
         {error ? (
           <span className="text-alert">{error}</span>
         ) : (

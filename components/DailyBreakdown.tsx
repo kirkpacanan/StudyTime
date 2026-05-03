@@ -7,7 +7,7 @@ export function DailyBreakdown({ days }: { days: DayAgg[] }) {
       {days.map((d) => (
         <li
           key={d.dateKey}
-          className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-primary/10 bg-surface px-3 py-2.5 text-sm"
+          className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/55 bg-white/[0.28] px-3 py-2.5 text-sm backdrop-blur-xl backdrop-saturate-200 dark:border-white/[0.16] dark:bg-slate-900/[0.34]"
         >
           <span className="font-medium text-text">{d.label}</span>
           <div className="flex flex-wrap items-center gap-2">

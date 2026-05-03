@@ -15,12 +15,12 @@ export function AppBackdrop() {
   }
 
   return (
-    <div
-      className="pointer-events-none fixed inset-0 -z-10 overflow-hidden bg-bg"
-      aria-hidden
-    >
       <div
-        className="absolute inset-0 opacity-[0.22] dark:opacity-[0.45]"
+        className="pointer-events-none fixed inset-0 -z-10 overflow-hidden bg-bg bg-[linear-gradient(155deg,var(--bg)_0%,color-mix(in_srgb,var(--bg)_82%,var(--primary))_48%,var(--bg)_100%)] dark:bg-[linear-gradient(160deg,#060912_0%,#0c1528_50%,#070b14_100%)]"
+        aria-hidden
+      >
+      <div
+        className="absolute inset-0 opacity-[0.32] dark:opacity-[0.52]"
         style={{
           backgroundImage: `linear-gradient(rgba(79,134,247,0.06) 1px, transparent 1px),
             linear-gradient(90deg, rgba(79,134,247,0.06) 1px, transparent 1px)`,

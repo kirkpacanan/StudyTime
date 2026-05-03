@@ -5,6 +5,10 @@ export type FocusFrameResult = {
   state: FocusSampleState;
   rawEar: number;
   hasFace: boolean;
+  /** 0–100 from eye openness (EAR), primary “eyes on task” signal */
+  eyesScore: number;
+  /** 0–100 from facing the camera (yaw + pitch + expressions) */
+  faceScore: number;
 };
 
 export type Landmark68 = {
@@ -63,6 +67,20 @@ function headYawScore(landmarks: Landmark68): number {
   return Math.min(1, offset / 0.35);
 }
 
+/** Rough vertical head pose: nose vs expected depth from eye line (looking down/up away from screen) */
+function headPitchScore(landmarks: Landmark68): number {
+  const le = landmarkPoint(landmarks, 36);
+  const re = landmarkPoint(landmarks, 45);
+  const nose = landmarkPoint(landmarks, 30);
+  if (!le || !re || !nose) return 0;
+  const eyeY = (le.y + re.y) / 2;
+  const eyed = dist(le, re);
+  if (eyed < 1e-6) return 0;
+  const expectedNoseY = eyeY + eyed * 0.48;
+  const dev = Math.abs(nose.y - expectedNoseY) / eyed;
+  return Math.min(1, dev / 0.55);
+}
+
 export function scoreFocusFromLandmarks(
   landmarks: Landmark68 | undefined,
   expressions: Record<string, number> | undefined,
@@ -79,6 +97,8 @@ export function scoreFocusFromLandmarks(
       state: "away",
       rawEar: 0,
       hasFace: false,
+      eyesScore: 0,
+      faceScore: 0,
     };
   }
 
@@ -91,7 +111,8 @@ export function scoreFocusFromLandmarks(
     Math.max(0, ((ear - 0.17) / (0.32 - 0.17)) * 100),
   );
 
-  const yawPenalty = headYawScore(landmarks) * 55;
+  const yawPenalty = headYawScore(landmarks) * 52;
+  const pitchPenalty = headPitchScore(landmarks) * 28;
   let exprPenalty = 0;
   if (expressions) {
     exprPenalty += (expressions.surprised ?? 0) * 12;
@@ -99,7 +120,15 @@ export function scoreFocusFromLandmarks(
     exprPenalty += (expressions.angry ?? 0) * 6;
   }
 
-  let score = earScore * 0.55 + (100 - yawPenalty) * 0.45 - exprPenalty;
+  const eyesScore = Math.round(earScore);
+  const faceRaw =
+    100 - yawPenalty - pitchPenalty - exprPenalty * 0.85;
+  const faceScore = Math.round(Math.min(100, Math.max(0, faceRaw)));
+
+  let score =
+    earScore * 0.5 +
+    Math.max(0, 100 - yawPenalty - pitchPenalty) * 0.42 -
+    exprPenalty;
   score = Math.min(100, Math.max(0, score));
 
   const alpha = opts.smoothAlpha;
@@ -117,5 +146,7 @@ export function scoreFocusFromLandmarks(
     state,
     rawEar: ear,
     hasFace: true,
+    eyesScore,
+    faceScore,
   };
 }

@@ -24,7 +24,7 @@ export function Topbar() {
 
   return (
     <motion.header
-      className="sticky top-0 z-10 flex h-16 items-center justify-between gap-3 border-b border-primary/10 bg-surface/85 px-4 shadow-[0_1px_0_rgba(79,134,247,0.06)] backdrop-blur-md dark:border-white/5 dark:bg-slate-950/90 dark:shadow-[0_1px_0_rgba(34,211,238,0.08)] md:px-8"
+      className="glass-topbar sticky top-0 z-10 flex h-16 items-center justify-between gap-3 px-4 md:px-8"
       initial={false}
     >
       <div className="min-w-0 pl-12 md:pl-0">

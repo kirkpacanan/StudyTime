@@ -64,7 +64,10 @@ export default function SignupPage() {
         animate={{ opacity: 1, scale: 1 }}
         transition={{ duration: 0.35, ease }}
       >
-        <Card className="auth-glass auth-glow-ring p-6 text-center text-sm text-muted md:p-8">
+        <Card
+          variant="auth"
+          className="auth-glass auth-glow-ring p-6 text-center text-sm text-muted md:p-8"
+        >
           Preparing your workspace…
         </Card>
       </motion.div>
@@ -78,7 +81,7 @@ export default function SignupPage() {
       animate="show"
       className="space-y-0"
     >
-      <Card className="auth-glass auth-glow-ring overflow-hidden p-6 md:p-8">
+      <Card variant="auth" className="auth-glass auth-glow-ring overflow-hidden p-6 md:p-8">
         <motion.div variants={item}>
           <StudyTimeWordmark logoSize={44} className="mb-6" />
         </motion.div>
@@ -101,7 +104,7 @@ export default function SignupPage() {
               autoComplete="name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="mt-1 transition-shadow duration-200 focus:shadow-[0_0_0_3px_rgba(79,134,247,0.2)]"
+              className="mt-1"
               placeholder="Alex"
             />
           </motion.div>
@@ -115,7 +118,7 @@ export default function SignupPage() {
               autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="mt-1 transition-shadow duration-200 focus:shadow-[0_0_0_3px_rgba(79,134,247,0.2)]"
+              className="mt-1"
               required
             />
           </motion.div>
@@ -132,7 +135,7 @@ export default function SignupPage() {
               autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="mt-1 transition-shadow duration-200 focus:shadow-[0_0_0_3px_rgba(79,134,247,0.2)]"
+              className="mt-1"
               required
               minLength={6}
             />

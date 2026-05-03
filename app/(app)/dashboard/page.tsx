@@ -117,8 +117,11 @@ export default function DashboardPage() {
         </p>
       </motion.div>
 
-      <motion.div variants={section} className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <motion.div variants={fadeUp}>
+      <motion.div
+        variants={section}
+        className="grid grid-cols-1 auto-rows-fr gap-4 sm:grid-cols-2 xl:grid-cols-4"
+      >
+        <motion.div variants={fadeUp} className="min-h-0 min-w-0">
           <StatCard
             title="Today · study time"
             value={stats ? `${stats.todayMinutes} min` : "—"}
@@ -127,7 +130,7 @@ export default function DashboardPage() {
             accent="blue"
           />
         </motion.div>
-        <motion.div variants={fadeUp}>
+        <motion.div variants={fadeUp} className="min-h-0 min-w-0">
           <StatCard
             title="Today · avg focus"
             value={
@@ -140,7 +143,7 @@ export default function DashboardPage() {
             accent="green"
           />
         </motion.div>
-        <motion.div variants={fadeUp}>
+        <motion.div variants={fadeUp} className="min-h-0 min-w-0">
           <StatCard
             title="This week · sessions"
             value={stats ? String(stats.weekSessionCount) : "—"}
@@ -149,7 +152,7 @@ export default function DashboardPage() {
             accent="yellow"
           />
         </motion.div>
-        <motion.div variants={fadeUp}>
+        <motion.div variants={fadeUp} className="min-h-0 min-w-0">
           <StatCard
             title="Streak"
             value={stats ? `${stats.report.streak} day(s)` : "—"}
