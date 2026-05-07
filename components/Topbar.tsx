@@ -7,14 +7,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AnimatePresence, motion } from "framer-motion";
 import { LogOut } from "lucide-react";
+import type { FocusSampleState } from "@/lib/types";
 
-function stateLabel(
-  s: "focused" | "drifting" | "distracted" | "away" | null,
-) {
+function stateLabel(s: FocusSampleState | null) {
   if (!s) return null;
   if (s === "focused") return "Focused";
   if (s === "drifting") return "Drifting";
   if (s === "distracted") return "Distracted";
+  if (s === "sleeping") return "Sleeping";
   return "Away";
 }
 
@@ -50,10 +50,12 @@ export function Topbar() {
                     ? "blue"
                     : live.focusState === "drifting"
                       ? "yellow"
-                      : live.focusState === "distracted" ||
-                          live.focusState === "away"
-                        ? "red"
-                        : "muted"
+                      : live.focusState === "sleeping"
+                        ? "muted"
+                        : live.focusState === "distracted" ||
+                            live.focusState === "away"
+                          ? "red"
+                          : "muted"
                 }
               >
                 {live.phase === "break" ? "Break" : stateLabel(live.focusState)}

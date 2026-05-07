@@ -28,9 +28,12 @@ export function computeSessionStats(
   let prev: FocusSample["state"] | null = null;
   for (const s of samples) {
     if (
-      (s.state === "distracted" || s.state === "away") &&
+      (s.state === "distracted" ||
+        s.state === "away" ||
+        s.state === "sleeping") &&
       prev !== "distracted" &&
-      prev !== "away"
+      prev !== "away" &&
+      prev !== "sleeping"
     ) {
       distractionEvents++;
     }

@@ -8,6 +8,7 @@ const stateRing: Record<FocusSampleState, string> = {
   drifting: "text-accent",
   distracted: "text-alert",
   away: "text-muted",
+  sleeping: "text-slate-400 dark:text-slate-500",
 };
 
 export function FocusGauge({

@@ -2,7 +2,8 @@ export type FocusSampleState =
   | "focused"
   | "drifting"
   | "distracted"
-  | "away";
+  | "away"
+  | "sleeping";
 
 export type FocusSample = {
   t: number;
