@@ -15,7 +15,7 @@ import {
 } from "@/hooks/useStudySession";
 import type { FocusFrameResult } from "@/lib/focus-detection";
 import { getSettings } from "@/lib/storage";
-import type { FocusSample, UserSettings } from "@/lib/types";
+import type { FocusSample, SessionEvent, UserSettings } from "@/lib/types";
 import { motion } from "framer-motion";
 import { Brain, CheckCircle2, Sparkles, Timer, Video, X } from "lucide-react";
 import { cn } from "@/lib/cn";
@@ -38,6 +38,184 @@ const FocusCamera = dynamic(
 );
 
 type Phase = "focus" | "break";
+
+type AlarmController = {
+  prime: () => void;
+  start: () => void;
+  stop: () => void;
+  isRunning: () => boolean;
+  close: () => void;
+};
+
+function createAlarmController(): AlarmController {
+  let ctx: AudioContext | null = null;
+  let osc1: OscillatorNode | null = null;
+  let osc2: OscillatorNode | null = null;
+  let gain: GainNode | null = null;
+  let lfo: OscillatorNode | null = null;
+  let lfoGain: GainNode | null = null;
+
+  let running = false;
+
+  const ensure = async () => {
+    if (!ctx) ctx = new AudioContext();
+    if (ctx.state !== "running") {
+      try {
+        await ctx.resume();
+      } catch {
+        // ignore
+      }
+    }
+  };
+
+  const teardownNodes = () => {
+    try {
+      osc1?.stop();
+    } catch {
+      // ignore
+    }
+    try {
+      osc2?.stop();
+    } catch {
+      // ignore
+    }
+    try {
+      lfo?.stop();
+    } catch {
+      // ignore
+    }
+    osc1?.disconnect();
+    osc2?.disconnect();
+    lfo?.disconnect();
+    lfoGain?.disconnect();
+    gain?.disconnect();
+    osc1 = null;
+    osc2 = null;
+    gain = null;
+    lfo = null;
+    lfoGain = null;
+  };
+
+  return {
+    prime: () => {
+      void ensure();
+    },
+    start: () => {
+      if (running) return;
+      running = true;
+      void (async () => {
+        await ensure();
+        if (!ctx) return;
+        teardownNodes();
+
+        gain = ctx.createGain();
+        gain.gain.value = 0.0001;
+        gain.connect(ctx.destination);
+
+        // Two oscillators for a more piercing alarm timbre
+        osc1 = ctx.createOscillator();
+        osc1.type = "square";
+        osc1.frequency.value = 880;
+        osc1.connect(gain);
+
+        osc2 = ctx.createOscillator();
+        osc2.type = "sawtooth";
+        osc2.frequency.value = 1320;
+        osc2.connect(gain);
+
+        // LFO to pulse volume (hard to ignore)
+        lfo = ctx.createOscillator();
+        lfo.type = "sine";
+        lfo.frequency.value = 2.6;
+        lfoGain = ctx.createGain();
+        lfoGain.gain.value = 0.45;
+        lfo.connect(lfoGain);
+        lfoGain.connect(gain.gain);
+
+        const now = ctx.currentTime;
+        gain.gain.cancelScheduledValues(now);
+        gain.gain.setValueAtTime(0.0, now);
+        gain.gain.linearRampToValueAtTime(0.7, now + 0.03);
+
+        osc1.start();
+        osc2.start();
+        lfo.start();
+      })();
+    },
+    stop: () => {
+      if (!running) return;
+      running = false;
+      if (!ctx || !gain) {
+        teardownNodes();
+        return;
+      }
+      const now = ctx.currentTime;
+      try {
+        gain.gain.cancelScheduledValues(now);
+        gain.gain.setValueAtTime(gain.gain.value, now);
+        gain.gain.linearRampToValueAtTime(0.0, now + 0.08);
+      } catch {
+        // ignore
+      }
+      window.setTimeout(() => teardownNodes(), 120);
+    },
+    isRunning: () => running,
+    close: () => {
+      running = false;
+      teardownNodes();
+      if (ctx) {
+        void ctx.close();
+        ctx = null;
+      }
+    },
+  };
+}
+
+function getLiveFlags(sample: FocusFrameResult): {
+  flags?: {
+    phoneDetected?: boolean;
+    eyesClosed?: boolean;
+    lookingAway?: boolean;
+    headDown?: boolean;
+    drowsy?: boolean;
+    hasFace?: boolean;
+  };
+  durations?: {
+    eyesClosedMs?: number;
+    lookingAwayMs?: number;
+    headDownMs?: number;
+    phoneDetectedMs?: number;
+    engagedMs?: number;
+  };
+} {
+  const anySample = sample as FocusFrameResult & {
+    flags?: unknown;
+    durations?: unknown;
+  };
+  return {
+    flags:
+      (anySample.flags as
+        | {
+            phoneDetected?: boolean;
+            eyesClosed?: boolean;
+            lookingAway?: boolean;
+            headDown?: boolean;
+            drowsy?: boolean;
+            hasFace?: boolean;
+          }
+        | undefined) ?? undefined,
+    durations:
+      (anySample.durations as
+        | {
+            eyesClosedMs?: number;
+            lookingAwayMs?: number;
+            headDownMs?: number;
+            phoneDetectedMs?: number;
+            engagedMs?: number;
+          }
+        | undefined) ?? undefined,
+  };
+}
 
 function fmt(sec: number) {
   const m = Math.floor(sec / 60);
@@ -73,6 +251,21 @@ export default function SessionPage() {
   const [remainingSec, setRemainingSec] = useState(0);
   const [focusCompleted, setFocusCompleted] = useState(0);
   const samplesRef = useRef<FocusSample[]>([]);
+  const eventsRef = useRef<SessionEvent[]>([]);
+  const alarmRef = useRef<AlarmController | null>(null);
+  const prevFlagsRef = useRef<{
+    phoneDetected: boolean;
+    eyesClosed10s: boolean;
+    lookingAwayLong: boolean;
+    headDownLong: boolean;
+    alarmRunning: boolean;
+  }>({
+    phoneDetected: false,
+    eyesClosed10s: false,
+    lookingAwayLong: false,
+    headDownLong: false,
+    alarmRunning: false,
+  });
   const sessionStartedAtRef = useRef<string | null>(null);
   const focusMsRef = useRef(0);
   const breakMsRef = useRef(0);
@@ -85,6 +278,8 @@ export default function SessionPage() {
     hasFace: false,
     eyesScore: 0,
     faceScore: 0,
+    yaw: 0,
+    pitch: 0,
   });
   const [summary, setSummary] = useState<SessionEndSummary | null>(null);
   const focusCompletedRef = useRef(0);
@@ -118,6 +313,7 @@ export default function SessionPage() {
   const focusThreshold = settings?.focusThreshold ?? 70;
   const distractionThreshold = settings?.distractionThreshold ?? 40;
   const webcamEnabled = settings?.webcamEnabled ?? true;
+  const phoneDetectionEnabled = settings?.phoneDetectionEnabled ?? true;
   const notify = settings?.notificationsEnabled ?? false;
 
   const notifyUser = useCallback(
@@ -165,6 +361,7 @@ export default function SessionPage() {
   completeCurrentPhaseRef.current = completeCurrentPhase;
 
   const endSession = useCallback(() => {
+    alarmRef.current?.stop();
     const started = sessionStartedAtRef.current;
     const samples = [...samplesRef.current];
     const focusMs = focusMsRef.current;
@@ -184,6 +381,7 @@ export default function SessionPage() {
         user.id,
         started,
         samples,
+        [...eventsRef.current],
         focusMs,
         breakMs,
         focusThreshold,
@@ -198,6 +396,7 @@ export default function SessionPage() {
 
     sessionStartedAtRef.current = null;
     samplesRef.current = [];
+    eventsRef.current = [];
     focusMsRef.current = 0;
     breakMsRef.current = 0;
     sessionMsRef.current = 0;
@@ -262,10 +461,85 @@ export default function SessionPage() {
     (sample: FocusFrameResult) => {
       setLastSample(sample);
       if (!running || paused || phaseRef.current !== "focus") return;
+      const flags = (sample as FocusFrameResult & {
+        flags?: {
+          phoneDetected?: boolean;
+          eyesClosed?: boolean;
+          lookingAway?: boolean;
+          headDown?: boolean;
+          drowsy?: boolean;
+          hasFace?: boolean;
+        };
+        durations?: {
+          eyesClosedMs?: number;
+          lookingAwayMs?: number;
+          headDownMs?: number;
+          phoneDetectedMs?: number;
+        };
+      }).flags;
+      const durations = (sample as FocusFrameResult & {
+        durations?: {
+          eyesClosedMs?: number;
+          lookingAwayMs?: number;
+          headDownMs?: number;
+          phoneDetectedMs?: number;
+        };
+      }).durations;
+
+      // --- event logging (session-relative) ---
+      const t = sessionMsRef.current;
+      const prev = prevFlagsRef.current;
+      const phoneNow = flags?.phoneDetected === true;
+      const eyesClosed10sNow = (durations?.eyesClosedMs ?? 0) >= 10_000;
+      const lookingAwayLongNow = (durations?.lookingAwayMs ?? 0) >= 6_000;
+      const headDownLongNow = (durations?.headDownMs ?? 0) >= 4_500;
+
+      if (phoneNow && !prev.phoneDetected) {
+        eventsRef.current.push({ t, type: "phone_detected" });
+      }
+      if (lookingAwayLongNow && !prev.lookingAwayLong) {
+        eventsRef.current.push({ t, type: "look_away_long" });
+      }
+      if (headDownLongNow && !prev.headDownLong) {
+        eventsRef.current.push({ t, type: "head_down_long" });
+      }
+      if (eyesClosed10sNow && !prev.eyesClosed10s) {
+        eventsRef.current.push({ t, type: "eyes_closed_10s" });
+      }
+
+      // --- mandatory alarm: >10s continuous eye closure ---
+      const shouldAlarm = eyesClosed10sNow && sample.state === "sleeping";
+      const alarm = alarmRef.current;
+      if (shouldAlarm && alarm && !alarm.isRunning()) {
+        alarm.start();
+        eventsRef.current.push({ t, type: "alarm_started" });
+      } else if (!shouldAlarm && alarm && alarm.isRunning()) {
+        alarm.stop();
+        eventsRef.current.push({ t, type: "alarm_stopped" });
+      }
+
+      prevFlagsRef.current = {
+        phoneDetected: phoneNow,
+        eyesClosed10s: eyesClosed10sNow,
+        lookingAwayLong: lookingAwayLongNow,
+        headDownLong: headDownLongNow,
+        alarmRunning: alarm?.isRunning() ?? false,
+      };
+
       samplesRef.current.push({
         t: sessionMsRef.current,
         score: sample.score,
         state: sample.state,
+        flags: flags
+          ? {
+              phoneDetected: flags.phoneDetected,
+              lookingAway: flags.lookingAway,
+              headDown: flags.headDown,
+              eyesClosed: flags.eyesClosed,
+              drowsy: flags.drowsy,
+              hasFace: flags.hasFace,
+            }
+          : undefined,
       });
     },
     [running, paused],
@@ -273,11 +547,21 @@ export default function SessionPage() {
 
   const startSession = () => {
     if (!settings || !user) return;
+    if (!alarmRef.current) alarmRef.current = createAlarmController();
+    alarmRef.current.prime();
     samplesRef.current = [];
+    eventsRef.current = [];
     focusMsRef.current = 0;
     breakMsRef.current = 0;
     sessionMsRef.current = 0;
     setFocusCompleted(0);
+    prevFlagsRef.current = {
+      phoneDetected: false,
+      eyesClosed10s: false,
+      lookingAwayLong: false,
+      headDownLong: false,
+      alarmRunning: false,
+    };
     sessionStartedAtRef.current = new Date().toISOString();
     phaseRef.current = "focus";
     setPhase("focus");
@@ -285,6 +569,18 @@ export default function SessionPage() {
     setRunning(true);
     setPaused(false);
   };
+
+  useEffect(() => {
+    // Stop alarm when pausing / breaking / ending
+    if (!running || paused || phase !== "focus") alarmRef.current?.stop();
+  }, [running, paused, phase]);
+
+  useEffect(() => {
+    return () => {
+      alarmRef.current?.close();
+      alarmRef.current = null;
+    };
+  }, []);
 
   const phaseTotalSec = useMemo(() => {
     if (phase === "focus") return focusSec;
@@ -390,7 +686,14 @@ export default function SessionPage() {
           }}
           className="space-y-0 xl:col-span-7"
         >
-          <Card className="overflow-hidden p-0">
+          <Card
+            className={cn(
+              "overflow-hidden p-0",
+              getLiveFlags(lastSample).flags?.phoneDetected
+                ? "ring-2 ring-red-500/35"
+                : null,
+            )}
+          >
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/80 px-5 py-4 dark:border-white/10 md:px-6">
               <h2 className="flex items-center gap-3 text-base font-semibold tracking-tight text-text">
                 <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200/90 bg-slate-50 text-primary dark:border-white/10 dark:bg-slate-800 dark:text-cyan-300">
@@ -412,6 +715,7 @@ export default function SessionPage() {
                 <FocusCamera
                   enabled={webcamEnabled}
                   active={running && !paused && phase === "focus"}
+                  phoneDetectionEnabled={phoneDetectionEnabled}
                   focusThreshold={focusThreshold}
                   distractionThreshold={distractionThreshold}
                   onSample={onSample}
@@ -549,12 +853,141 @@ export default function SessionPage() {
                           : "muted"
                   }
                 >
-                  {lastSample.state}
+                  {(() => {
+                    const { flags, durations } = getLiveFlags(lastSample);
+                    const eyesClosedMs = durations?.eyesClosedMs ?? 0;
+                    const eyesClosed = flags?.eyesClosed === true;
+                    const toSleepSec =
+                      eyesClosed && eyesClosedMs > 0
+                        ? Math.max(0, Math.ceil((10_000 - eyesClosedMs) / 1000))
+                        : null;
+
+                    if (lastSample.state === "focused") return "Focused";
+                    if (lastSample.state === "drifting") return "Drifting";
+                    if (lastSample.state === "sleeping")
+                      return "Sleeping (Alarm)";
+                    if (eyesClosed && toSleepSec != null)
+                      return `Eyes closed (${toSleepSec}s)`;
+                    if (lastSample.state === "distracted") return "Not Focused";
+                    if (lastSample.state === "away") return "Not Focused";
+                    return lastSample.state;
+                  })()}
                 </Badge>
                 <FocusSignalBars
                   eyesScore={lastSample.eyesScore}
                   faceScore={lastSample.faceScore}
                 />
+
+                {(() => {
+                  const { flags, durations } = getLiveFlags(lastSample);
+                  const phoneDetected = flags?.phoneDetected === true;
+                  const eyesClosedMs = durations?.eyesClosedMs ?? 0;
+                  const eyesClosed = flags?.eyesClosed === true;
+                  const closedPct = Math.min(
+                    100,
+                    Math.max(0, (eyesClosedMs / 10_000) * 100),
+                  );
+                  const toSleepSec =
+                    eyesClosed && eyesClosedMs > 0
+                      ? Math.max(0, Math.ceil((10_000 - eyesClosedMs) / 1000))
+                      : null;
+                  const sleepLabel =
+                    lastSample.state === "sleeping"
+                      ? "Sleeping"
+                      : eyesClosed && toSleepSec != null
+                        ? `Eyes closed · ${toSleepSec}s`
+                        : "Eyes open";
+
+                  return (
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div
+                        className={cn(
+                          "rounded-xl border p-3 backdrop-blur-xl backdrop-saturate-200",
+                          phoneDetected
+                            ? "border-red-500/40 bg-red-500/[0.10] dark:border-red-500/30 dark:bg-red-950/40"
+                            : "border-white/55 bg-white/[0.28] dark:border-white/[0.16] dark:bg-slate-900/[0.36]",
+                        )}
+                      >
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <span
+                            className={cn(
+                              "text-xs font-semibold uppercase tracking-wide",
+                              phoneDetected
+                                ? "text-red-600 dark:text-red-300"
+                                : "text-muted",
+                            )}
+                          >
+                            Phone
+                          </span>
+                          <span className="tabular-nums text-xs font-semibold text-text">
+                            {phoneDetected ? "Detected" : "—"}
+                          </span>
+                        </div>
+                        <div className="h-2 overflow-hidden rounded-full border border-white/25 bg-white/50 backdrop-blur-sm dark:border-white/[0.06] dark:bg-slate-800/60">
+                          <div
+                            className={cn(
+                              "h-full rounded-full transition-[width] duration-200",
+                              phoneDetected
+                                ? "bg-gradient-to-r from-red-500 to-rose-500"
+                                : "bg-gradient-to-r from-slate-300 to-slate-400 dark:from-slate-600 dark:to-slate-700",
+                            )}
+                            style={{ width: `${phoneDetected ? 100 : 0}%` }}
+                          />
+                        </div>
+                        <p className="mt-1.5 text-[10px] leading-snug text-muted">
+                          ML phone detector — instantly marks Not Focused.
+                        </p>
+                      </div>
+
+                      <div
+                        className={cn(
+                          "rounded-xl border p-3 backdrop-blur-xl backdrop-saturate-200",
+                          lastSample.state === "sleeping"
+                            ? "border-red-500/40 bg-red-500/[0.10] dark:border-red-500/30 dark:bg-red-950/40"
+                            : eyesClosed
+                              ? "border-amber-500/40 bg-amber-500/[0.10] dark:border-amber-500/25 dark:bg-amber-950/35"
+                              : "border-white/55 bg-white/[0.28] dark:border-white/[0.16] dark:bg-slate-900/[0.36]",
+                        )}
+                      >
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <span
+                            className={cn(
+                              "text-xs font-semibold uppercase tracking-wide",
+                              lastSample.state === "sleeping"
+                                ? "text-red-600 dark:text-red-300"
+                                : eyesClosed
+                                  ? "text-amber-700 dark:text-amber-300"
+                                  : "text-muted",
+                            )}
+                          >
+                            Sleep
+                          </span>
+                          <span className="tabular-nums text-xs font-semibold text-text">
+                            {sleepLabel}
+                          </span>
+                        </div>
+                        <div className="h-2 overflow-hidden rounded-full border border-white/25 bg-white/50 backdrop-blur-sm dark:border-white/[0.06] dark:bg-slate-800/60">
+                          <div
+                            className={cn(
+                              "h-full rounded-full transition-[width] duration-200",
+                              lastSample.state === "sleeping"
+                                ? "bg-gradient-to-r from-red-500 to-rose-500"
+                                : eyesClosed
+                                  ? "bg-gradient-to-r from-amber-500 to-yellow-500"
+                                  : "bg-gradient-to-r from-slate-300 to-slate-400 dark:from-slate-600 dark:to-slate-700",
+                            )}
+                            style={{ width: `${eyesClosed ? closedPct : 0}%` }}
+                          />
+                        </div>
+                        <p className="mt-1.5 text-[10px] leading-snug text-muted">
+                          Sleeping triggers at{" "}
+                          <span className="font-medium text-text">10s</span>{" "}
+                          continuous eye closure.
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
               <p className="rounded-xl border border-slate-200/70 bg-slate-50/50 px-4 py-3 text-center text-[11px] leading-relaxed text-slate-600 dark:border-white/10 dark:bg-slate-900/40 dark:text-muted">
                 Score blends{" "}

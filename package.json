@@ -9,8 +9,11 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@tensorflow-models/coco-ssd": "^2.2.3",
+    "@tensorflow/tfjs": "^4.22.0",
+    "@tensorflow/tfjs-backend-webgl": "^4.22.0",
+    "@vladmandic/face-api": "^1.7.15",
     "clsx": "^2.1.1",
-    "face-api.js": "^0.22.2",
     "framer-motion": "^12.38.0",
     "lucide-react": "^1.14.0",
     "next": "14.2.35",

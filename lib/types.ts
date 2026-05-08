@@ -5,10 +5,37 @@ export type FocusSampleState =
   | "away"
   | "sleeping";
 
+export type SessionEventType =
+  | "phone_detected"
+  | "look_away_long"
+  | "head_down_long"
+  | "eyes_closed_10s"
+  | "alarm_started"
+  | "alarm_stopped";
+
+export type SessionEvent = {
+  /** Session-relative timestamp (ms) */
+  t: number;
+  type: SessionEventType;
+  meta?: Record<string, unknown>;
+};
+
 export type FocusSample = {
   t: number;
   score: number;
   state: FocusSampleState;
+  /**
+   * Optional per-sample flags for debugging/UX; kept optional for backwards compatibility
+   * with existing stored sessions.
+   */
+  flags?: {
+    phoneDetected?: boolean;
+    lookingAway?: boolean;
+    headDown?: boolean;
+    eyesClosed?: boolean;
+    drowsy?: boolean;
+    hasFace?: boolean;
+  };
 };
 
 export type StudySession = {
@@ -22,6 +49,8 @@ export type StudySession = {
   focusedRatio: number;
   distractionEvents: number;
   samples: FocusSample[];
+  /** Optional discrete events (new schema; old sessions won't have it) */
+  events?: SessionEvent[];
 };
 
 export type UserSettings = {
@@ -33,6 +62,7 @@ export type UserSettings = {
   distractionThreshold: number;
   webcamEnabled: boolean;
   notificationsEnabled: boolean;
+  phoneDetectionEnabled: boolean;
 };
 
 export type UserRecord = {
@@ -53,6 +83,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   distractionThreshold: 40,
   webcamEnabled: true,
   notificationsEnabled: false,
+  phoneDetectionEnabled: true,
 };
 
 export type LiveSessionSnapshot = {

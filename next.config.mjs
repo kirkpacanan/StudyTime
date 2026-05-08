@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  transpilePackages: ["face-api.js"],
+  transpilePackages: ["@vladmandic/face-api"],
   webpack: (config, { isServer }) => {
     config.resolve.alias.canvas = false;
     if (!isServer) {

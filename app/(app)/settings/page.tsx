@@ -153,6 +153,15 @@ export default function SettingsPage() {
         <label className="flex items-center gap-3 text-sm text-text">
           <input
             type="checkbox"
+            checked={form.phoneDetectionEnabled}
+            onChange={(e) => update("phoneDetectionEnabled", e.target.checked)}
+            className="h-4 w-4 rounded border-primary/30 text-primary focus:ring-primary"
+          />
+          Enable phone detection (webcam)
+        </label>
+        <label className="flex items-center gap-3 text-sm text-text">
+          <input
+            type="checkbox"
             checked={form.notificationsEnabled}
             onChange={(e) =>
               update("notificationsEnabled", e.target.checked)

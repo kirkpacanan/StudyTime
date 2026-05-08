@@ -1,0 +1,21 @@
+---
+description: StudyTime focus/webcam feature scope and restore intent (pre–pretrained-eye model)
+alwaysApply: true
+---
+
+# StudyTime focus stack — user intent
+
+## Git truth
+
+- **`main` at `81ccc88` (“last update”) is the full history on disk and on `origin/main`.** There are no later commits that contain the extended focus session work.
+- A mistaken **`git restore`** removed **uncommitted** work (large `session/page.tsx`, `FocusAttentionEngine`, TFJS/coco-ssd, phone detection, alarms, etc.). That work is **not recoverable from Git** unless restored from **Cursor Local History / Time Machine / another clone**.
+
+## Feature line to “remember”
+
+- The user wants the product direction that existed **up to the day of the prompt “I want a pretrained model”** — i.e. **rebuild or keep the full focus stack as developed before that point**.
+- **Stop / do not re-add** there: the **pretrained eyeblink / eye openness TFJS model** (`public/models/eyeblink/`, mirrory-dev-style graph, **`eyeOpennessMl`** feeding the engine). Prior behavior should rely on **landmarks / EAR (and existing heuristics)** for eyes closed, plus the rest of that stack (engine, phone detection, alarms, session events, etc.) as implemented before that pretrained path.
+
+## When re-implementing
+
+- Prefer the stack from that era: **attention engine**, **session UX**, **optional phone detection**, **10s-ish sleep/alarm semantics** — **excluding** pretrained per-eye ONNX/TFJS eye openness unless the user explicitly asks again.
+- Do not bulk-undo with **`git restore`** of the whole tree unless the user explicitly requests it.

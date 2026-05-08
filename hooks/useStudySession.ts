@@ -1,7 +1,7 @@
 "use client";
 
 import { appendSession } from "@/lib/storage";
-import type { FocusSample } from "@/lib/types";
+import type { FocusSample, SessionEvent } from "@/lib/types";
 
 export function computeSessionStats(
   samples: FocusSample[],
@@ -52,6 +52,7 @@ export function persistStudySession(
   userId: string,
   startedAt: string,
   samples: FocusSample[],
+  events: SessionEvent[],
   focusMs: number,
   breakMs: number,
   focusThreshold: number,
@@ -68,6 +69,7 @@ export function persistStudySession(
     focusedRatio: stats.focusedRatio,
     distractionEvents: stats.distractionEvents,
     samples,
+    events,
   };
   appendSession(session);
   return session;

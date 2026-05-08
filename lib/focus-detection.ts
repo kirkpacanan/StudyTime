@@ -9,6 +9,10 @@ export type FocusFrameResult = {
   eyesScore: number;
   /** 0–100 from facing the camera (yaw + pitch + expressions) */
   faceScore: number;
+  /** 0–1 rough head yaw deviation (higher = more turned away) */
+  yaw: number;
+  /** 0–1 rough head pitch deviation (higher = more up/down away) */
+  pitch: number;
 };
 
 export type Landmark68 = {
@@ -99,6 +103,8 @@ export function scoreFocusFromLandmarks(
       hasFace: false,
       eyesScore: 0,
       faceScore: 0,
+      yaw: 0,
+      pitch: 0,
     };
   }
 
@@ -111,8 +117,10 @@ export function scoreFocusFromLandmarks(
     Math.max(0, ((ear - 0.17) / (0.32 - 0.17)) * 100),
   );
 
-  const yawPenalty = headYawScore(landmarks) * 52;
-  const pitchPenalty = headPitchScore(landmarks) * 28;
+  const yaw = headYawScore(landmarks);
+  const pitch = headPitchScore(landmarks);
+  const yawPenalty = yaw * 52;
+  const pitchPenalty = pitch * 28;
   let exprPenalty = 0;
   if (expressions) {
     exprPenalty += (expressions.surprised ?? 0) * 12;
@@ -148,5 +156,7 @@ export function scoreFocusFromLandmarks(
     hasFace: true,
     eyesScore,
     faceScore,
+    yaw,
+    pitch,
   };
 }
