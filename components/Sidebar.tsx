@@ -8,6 +8,7 @@ import {
   LayoutDashboard,
   Menu,
   Settings,
+  Trophy,
   X,
 } from "lucide-react";
 import { LayoutGroup, motion } from "framer-motion";
@@ -18,6 +19,7 @@ import { useState } from "react";
 const links = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/session", label: "Study session", icon: BookOpen },
+  { href: "/leaderboard", label: "Leaderboard", icon: Trophy },
   { href: "/reports", label: "Reports", icon: BarChart3 },
   { href: "/settings", label: "Settings", icon: Settings },
 ] as const;

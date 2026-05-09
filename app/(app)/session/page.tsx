@@ -9,15 +9,18 @@ import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { useSessionLive } from "@/contexts/session-live-context";
 import { useAuth } from "@/hooks/useAuth";
+import { SessionSummaryCelebration } from "@/components/gamification/SessionSummaryCelebration";
 import {
   computeSessionStats,
   persistStudySession,
 } from "@/hooks/useStudySession";
+import type { SessionCelebrationPayload } from "@/lib/gamification/session-celebration";
+import { computeSessionCelebration } from "@/lib/gamification/session-celebration";
 import type { FocusFrameResult } from "@/lib/focus-detection";
 import { getSettings } from "@/lib/storage";
 import type { FocusSample, SessionEvent, UserSettings } from "@/lib/types";
 import { motion } from "framer-motion";
-import { Brain, CheckCircle2, Sparkles, Timer, Video, X } from "lucide-react";
+import { Brain, Sparkles, Timer, Video } from "lucide-react";
 import { cn } from "@/lib/cn";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -223,11 +226,6 @@ function fmt(sec: number) {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-function fmtMsAsMin(ms: number) {
-  const m = Math.round(ms / 60000);
-  return m <= 0 ? "0 min" : `${m} min`;
-}
-
 type SessionEndSummary = {
   saved: boolean;
   startedAt: string;
@@ -239,6 +237,7 @@ type SessionEndSummary = {
   averageFocus: number;
   focusedRatio: number;
   distractionEvents: number;
+  celebration: SessionCelebrationPayload | null;
 };
 
 export default function SessionPage() {
@@ -376,8 +375,9 @@ export default function SessionPage() {
       breakMs,
     );
     let saved = false;
+    let celebration: SessionCelebrationPayload | null = null;
     if (user && started && samples.length > 0) {
-      persistStudySession(
+      const session = persistStudySession(
         user.id,
         started,
         samples,
@@ -387,6 +387,7 @@ export default function SessionPage() {
         focusThreshold,
       );
       saved = true;
+      celebration = computeSessionCelebration(user, session);
     }
 
     setRunning(false);
@@ -416,6 +417,7 @@ export default function SessionPage() {
       averageFocus: stats.averageFocus,
       focusedRatio: stats.focusedRatio,
       distractionEvents: stats.distractionEvents,
+      celebration,
     });
   }, [focusThreshold, resetLive, user]);
 
@@ -1003,133 +1005,13 @@ export default function SessionPage() {
       </div>
 
       {summary ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="session-summary-title"
-        >
-          <button
-            type="button"
-            className="absolute inset-0 bg-slate-950/55 backdrop-blur-sm dark:bg-black/60"
-            aria-label="Close summary"
-            onClick={() => setSummary(null)}
-          />
-          <Card className="relative z-10 w-full max-w-md overflow-hidden p-0 shadow-2xl ring-1 ring-slate-200/80 dark:ring-white/10">
-            <div className="flex items-start justify-between gap-3 border-b border-slate-200/80 px-5 py-4 dark:border-white/10 sm:px-6">
-              <div className="min-w-0">
-                <p
-                  id="session-summary-title"
-                  className="text-lg font-semibold tracking-tight text-text"
-                >
-                  Session summary
-                </p>
-                <p className="mt-1 text-xs text-muted">
-                  {new Date(summary.startedAt).toLocaleString()} →{" "}
-                  {new Date(summary.endedAt).toLocaleTimeString()}
-                </p>
-              </div>
-              <button
-                type="button"
-                className="rounded-lg p-1.5 text-muted hover:bg-slate-100 hover:text-text dark:hover:bg-white/10"
-                onClick={() => setSummary(null)}
-                aria-label="Close"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <div className="space-y-4 px-5 py-5 sm:px-6">
-              {summary.saved ? (
-                <p className="flex items-center gap-2 text-sm text-success dark:text-emerald-400">
-                  <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden />
-                  Saved to your history — it will show on the dashboard and
-                  reports.
-                </p>
-              ) : (
-                <p className="text-sm leading-relaxed text-slate-600 dark:text-muted">
-                  Nothing was saved. Turn on the camera in Settings and run a
-                  focus block so we can log samples from your session.
-                </p>
-              )}
-              <dl className="grid grid-cols-2 gap-3 text-sm">
-                <div className="rounded-lg border border-slate-200/80 bg-slate-50/80 px-3 py-2.5 dark:border-white/10 dark:bg-slate-900/40">
-                  <dt className="text-[11px] font-medium uppercase tracking-wide text-muted">
-                    Focus time
-                  </dt>
-                  <dd className="mt-0.5 font-semibold tabular-nums text-text">
-                    {fmtMsAsMin(summary.focusMs)}
-                  </dd>
-                </div>
-                <div className="rounded-lg border border-slate-200/80 bg-slate-50/80 px-3 py-2.5 dark:border-white/10 dark:bg-slate-900/40">
-                  <dt className="text-[11px] font-medium uppercase tracking-wide text-muted">
-                    Break time
-                  </dt>
-                  <dd className="mt-0.5 font-semibold tabular-nums text-text">
-                    {fmtMsAsMin(summary.breakMs)}
-                  </dd>
-                </div>
-                <div className="rounded-lg border border-slate-200/80 bg-slate-50/80 px-3 py-2.5 dark:border-white/10 dark:bg-slate-900/40">
-                  <dt className="text-[11px] font-medium uppercase tracking-wide text-muted">
-                    Focus blocks done
-                  </dt>
-                  <dd className="mt-0.5 font-semibold tabular-nums text-text">
-                    {summary.pomodoroBlocks}
-                  </dd>
-                </div>
-                <div className="rounded-lg border border-slate-200/80 bg-slate-50/80 px-3 py-2.5 dark:border-white/10 dark:bg-slate-900/40">
-                  <dt className="text-[11px] font-medium uppercase tracking-wide text-muted">
-                    Samples logged
-                  </dt>
-                  <dd className="mt-0.5 font-semibold tabular-nums text-text">
-                    {summary.sampleCount}
-                  </dd>
-                </div>
-                <div className="rounded-lg border border-slate-200/80 bg-slate-50/80 px-3 py-2.5 dark:border-white/10 dark:bg-slate-900/40">
-                  <dt className="text-[11px] font-medium uppercase tracking-wide text-muted">
-                    Avg focus
-                  </dt>
-                  <dd className="mt-0.5 font-semibold tabular-nums text-text">
-                    {summary.sampleCount > 0
-                      ? `${summary.averageFocus}%`
-                      : "—"}
-                  </dd>
-                </div>
-                <div className="rounded-lg border border-slate-200/80 bg-slate-50/80 px-3 py-2.5 dark:border-white/10 dark:bg-slate-900/40">
-                  <dt className="text-[11px] font-medium uppercase tracking-wide text-muted">
-                    Time ≥ threshold
-                  </dt>
-                  <dd className="mt-0.5 font-semibold tabular-nums text-text">
-                    {summary.sampleCount > 0
-                      ? `${summary.focusedRatio}%`
-                      : "—"}
-                  </dd>
-                </div>
-                <div className="col-span-2 rounded-lg border border-slate-200/80 bg-slate-50/80 px-3 py-2.5 dark:border-white/10 dark:bg-slate-900/40">
-                  <dt className="text-[11px] font-medium uppercase tracking-wide text-muted">
-                    Distraction dips (away / distracted)
-                  </dt>
-                  <dd className="mt-0.5 font-semibold tabular-nums text-text">
-                    {summary.distractionEvents}
-                  </dd>
-                </div>
-              </dl>
-              <div className="flex flex-wrap gap-2 pt-1">
-                <Button type="button" onClick={() => setSummary(null)}>
-                  Done
-                </Button>
-                <Link
-                  href="/dashboard"
-                  className={cn(
-                    "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition duration-200 ease-out active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ring-offset-bg",
-                    "glass-button-secondary",
-                  )}
-                >
-                  Dashboard
-                </Link>
-              </div>
-            </div>
-          </Card>
-        </div>
+        <SessionSummaryCelebration
+          summary={summary}
+          celebration={summary.celebration}
+          userName={user?.name ?? "Student"}
+          userAvatarSeed={user?.id ?? "guest"}
+          onClose={() => setSummary(null)}
+        />
       ) : null}
     </div>
   );
