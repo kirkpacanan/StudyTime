@@ -937,7 +937,7 @@ export default function SessionPage() {
                           />
                         </div>
                         <p className="mt-1.5 text-[10px] leading-snug text-muted">
-                          ML phone detector — instantly marks Not Focused.
+                          MediaPipe phone detector — works portrait or sideways; marks Not Focused when a phone appears in frame.
                         </p>
                       </div>
 

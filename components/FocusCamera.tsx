@@ -9,6 +9,11 @@ import {
   FocusAttentionEngine,
   type AttentionFrameResult,
 } from "@/lib/focus-attention-engine";
+import {
+  computeFacePresenceSignals,
+  laplacianVarianceFaceRoi,
+  normalizeSharpness,
+} from "@/lib/face-presence-quality";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 type Props = {
@@ -21,16 +26,31 @@ type Props = {
 };
 
 const AWAY_MS = 5000;
-const PHONE_DETECT_EVERY_MS = 1100;
+/** MediaPipe ObjectDetector (Wasm) cadence — faster than TFJS COCO path on typical laptops. */
+const PHONE_DETECT_EVERY_MS = 800;
 const EYE_DETECT_EVERY_MS = 280;
+const ROI_SHARPNESS_EVERY_MS = 320;
 const EYE_MODEL_URL = "/models/eyeblink/model.json";
+/** Vendored from `node_modules/@mediapipe/tasks-vision/wasm` via `npm run vendor:ml`. */
+const MEDIAPIPE_VISION_WASM = "/mediapipe/wasm";
+/** Vendored `.tflite` under `public/models/object_detector/` (same script); no CDN at runtime. */
+const PHONE_OD_MODEL_URL = "/models/object_detector/efficientdet_lite2.tflite";
+/** Internal detector threshold (multi-hit + EMA still gate user-facing alerts). */
+const PHONE_OD_SCORE_THRESHOLD = 0.28;
 const PHONE_HOLD_MS = 3500;
-const PHONE_SCORE_THRESHOLD = 0.25;
+const PHONE_SCORE_THRESHOLD = 0.23;
 const PHONE_HITS_WINDOW_MS = 2500;
 const PHONE_HITS_TO_TRIGGER = 2;
+/** Lower than Tiny’s box score; SSD often scores differently — tuned for noisy / dim webcams. */
+const SSD_MIN_CONFIDENCE = 0.32;
 
 const LEFT_EYE_I = [36, 37, 38, 39, 40, 41] as const;
 const RIGHT_EYE_I = [42, 43, 44, 45, 46, 47] as const;
+
+function isPhoneObjectLabel(categoryName: string): boolean {
+  const n = categoryName.trim().toLowerCase();
+  return n === "cell phone" || n === "mobile phone";
+}
 
 function expressionsToRecord(
   ex: unknown,
@@ -215,6 +235,9 @@ export function FocusCamera({
     error: false,
     disabledNotified: false,
   });
+  const roiQualityCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const lastSharpNormRef = useRef<number>(0.55);
+  const lastRoiQualityMsRef = useRef<number>(0);
 
   const phoneHitTimesRef = useRef<number[]>([]);
   const phoneScoreEmaRef = useRef<number>(0);
@@ -265,6 +288,8 @@ export function FocusCamera({
       };
       setPhoneUi({ enabled: true, status: "idle", lastScore: null });
       setEyeHud("idle");
+      lastSharpNormRef.current = 0.55;
+      lastRoiQualityMsRef.current = 0;
     }
   }, [enabled, modelsReady, active]);
   onSampleRef.current = onSample;
@@ -279,44 +304,42 @@ export function FocusCamera({
         status: phoneModelRef.current ? "ready" : "loading",
       }));
       try {
-        // Keep ALL failures contained: never let phone detection crash the main loop.
-        const tf = await import("@tensorflow/tfjs");
-        await import("@tensorflow/tfjs-backend-webgl");
-        try {
-          if (tf.getBackend() !== "webgl") await tf.setBackend("webgl");
-          await tf.ready();
-        } catch {
-          // backend init failed; just skip this pass
-          return;
-        }
-
-        const cocoMod = await import("@tensorflow-models/coco-ssd");
-        const cocoAny = cocoMod as unknown as {
-          load?: (opts?: unknown) => Promise<unknown>;
-          default?: { load?: (opts?: unknown) => Promise<unknown> };
-        };
-        const loadFn = cocoAny.load ?? cocoAny.default?.load;
-        if (typeof loadFn !== "function") throw new Error("COCO-SSD load missing");
+        // MediaPipe ObjectDetector (EfficientDet-Lite2): better on small phones / poor webcams vs COCO-SSD; axis-aligned boxes → portrait or horizontal is fine.
+        const { FilesetResolver, ObjectDetector } = await import("@mediapipe/tasks-vision");
 
         if (!phoneModelRef.current) {
-          // Prefer accuracy over speed; phone is a small object and often low-confidence.
-          // (Falls back if option is unsupported in this build.)
-          try {
-            phoneModelRef.current = await loadFn({ base: "mobilenet_v2" });
-          } catch {
-            phoneModelRef.current = await loadFn();
-          }
+          const fileset = await FilesetResolver.forVisionTasks(
+            MEDIAPIPE_VISION_WASM,
+            // `false`: classic loader (`vision_wasm_internal.js`). The ES-module
+            // loader pulls `vision_wasm_module_internal.js`, which references
+            // `import.meta` and throws when fetched from `/public` as a non-module script.
+            false,
+          );
+          phoneModelRef.current = await ObjectDetector.createFromOptions(fileset, {
+            baseOptions: { modelAssetPath: PHONE_OD_MODEL_URL },
+            runningMode: "VIDEO",
+            scoreThreshold: PHONE_OD_SCORE_THRESHOLD,
+            maxResults: 5,
+          });
         }
-        const model = phoneModelRef.current as unknown as {
-          detect: (input: HTMLVideoElement) => Promise<
-            Array<{ class: string; score?: number; bbox?: [number, number, number, number] }>
-          >;
+        const detector = phoneModelRef.current as {
+          detectForVideo: (frame: HTMLVideoElement, ts: number) => { detections: Array<{ categories: Array<{ score: number; categoryName: string }>; boundingBox?: { originX: number; originY: number; width: number; height: number } }> };
         };
-        const preds = await model.detect(video);
-        const phones = preds
-          .filter((p) => p.class === "cell phone")
-          .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
-        const best = phones[0];
+        const { detections } = detector.detectForVideo(video, performance.now());
+        const picks: Array<{
+          score: number;
+          box: { originX: number; originY: number; width: number; height: number };
+        }> = [];
+        for (const d of detections) {
+          const cat = d.categories[0];
+          const box = d.boundingBox;
+          if (!cat || !box) continue;
+          if (!isPhoneObjectLabel(cat.categoryName)) continue;
+          picks.push({ score: cat.score, box });
+        }
+        picks.sort((a, b) => b.score - a.score);
+
+        const best = picks[0];
 
         const score = best?.score ?? 0;
         // EMA smooths confidence, reduces flicker.
@@ -339,10 +362,14 @@ export function FocusCamera({
 
         if (best && confirmed) {
           phoneDetectedUntilRef.current = nowMs + PHONE_HOLD_MS;
-          const bb = best.bbox;
-          if (bb) {
-            phoneBoxRef.current = { x: bb[0], y: bb[1], width: bb[2], height: bb[3], score };
-          }
+          const b = best.box;
+          phoneBoxRef.current = {
+            x: b.originX,
+            y: b.originY,
+            width: b.width,
+            height: b.height,
+            score,
+          };
         } else {
           phoneBoxRef.current = null;
         }
@@ -471,8 +498,20 @@ export function FocusCamera({
     streamRef.current = null;
   }, []);
 
+  const disposePhoneMl = useCallback(() => {
+    phoneInFlightRef.current = false;
+    const det = phoneModelRef.current as { close?: () => void } | null;
+    phoneModelRef.current = null;
+    try {
+      det?.close?.();
+    } catch {
+      /* noop */
+    }
+  }, []);
+
   useEffect(() => {
     if (!enabled) {
+      disposePhoneMl();
       stopStream();
       setModelsReady(false);
       setStatus("Camera off — use manual focus or enable in Settings.");
@@ -504,6 +543,7 @@ export function FocusCamera({
         const MODEL_URL = "/models";
         await Promise.all([
           faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+          faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
           faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
           faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL),
         ]);
@@ -521,8 +561,9 @@ export function FocusCamera({
     return () => {
       cancelled = true;
       stopStream();
+      disposePhoneMl();
     };
-  }, [enabled, stopStream]);
+  }, [enabled, stopStream, disposePhoneMl]);
 
   useEffect(() => {
     if (!enabled || error || !modelsReady) return;
@@ -537,20 +578,79 @@ export function FocusCamera({
       }
 
       try {
+        const nowMs = Date.now();
         const faceapi = await import("@vladmandic/face-api");
-        const det = await faceapi
-          .detectSingleFace(
-            video,
-            new faceapi.TinyFaceDetectorOptions({
-              inputSize: 416,
-              scoreThreshold: 0.32,
-            }),
-          )
-          .withFaceLandmarks()
-          .withFaceExpressions();
+        const tinyOpts = new faceapi.TinyFaceDetectorOptions({
+          inputSize: 416,
+          /** Stricter = fewer false “in frame” when you’re off-camera or occluded. */
+          scoreThreshold: 0.36,
+        });
+        let det =
+          await faceapi
+            .detectSingleFace(video, tinyOpts)
+            .withFaceLandmarks()
+            .withFaceExpressions();
+        if (!det) {
+          det = await faceapi
+            .detectSingleFace(
+              video,
+              new faceapi.SsdMobilenetv1Options({
+                minConfidence: SSD_MIN_CONFIDENCE,
+                maxResults: 1,
+              }),
+            )
+            .withFaceLandmarks()
+            .withFaceExpressions();
+        }
 
         const expressions = expressionsToRecord(det?.expressions);
         const landmarks = det?.landmarks;
+
+        const vw = video.videoWidth;
+        const vh = video.videoHeight;
+        const detTyped = det as
+          | {
+              detection: {
+                score?: number;
+                box: { x: number; y: number; width: number; height: number };
+              };
+            }
+          | undefined;
+
+        let sharpNorm = lastSharpNormRef.current;
+        const box = detTyped?.detection?.box;
+        if (box && vw && vh && nowMs - lastRoiQualityMsRef.current >= ROI_SHARPNESS_EVERY_MS) {
+          lastRoiQualityMsRef.current = nowMs;
+          if (!roiQualityCanvasRef.current) {
+            roiQualityCanvasRef.current = document.createElement("canvas");
+          }
+          const rawVar = laplacianVarianceFaceRoi(video, box, roiQualityCanvasRef.current);
+          sharpNorm = normalizeSharpness(rawVar);
+          lastSharpNormRef.current = sharpNorm;
+        }
+
+        const detScore =
+          typeof detTyped?.detection?.score === "number"
+            ? detTyped.detection.score
+            : detTyped
+              ? 0.5
+              : 0;
+
+        let trackingConfidence = 1;
+        let presenceQuality: number | undefined;
+        if (detTyped?.detection?.box && vw && vh) {
+          const sig = computeFacePresenceSignals(
+            detScore,
+            detTyped.detection.box,
+            vw,
+            vh,
+            sharpNorm,
+          );
+          trackingConfidence = sig.trackingConfidence;
+          presenceQuality = sig.presenceQuality;
+        } else if (!detTyped) {
+          lastSharpNormRef.current = 0.55;
+        }
 
         const base = scoreFocusFromLandmarks(
           landmarks as unknown as Landmark68 | undefined,
@@ -560,6 +660,8 @@ export function FocusCamera({
             distractionThreshold,
             prevSmoothed: smoothedRef.current,
             smoothAlpha: 0.28,
+            trackingConfidence,
+            presenceQuality,
           },
         );
 
@@ -587,9 +689,8 @@ export function FocusCamera({
         }
 
         const awayFor = Date.now() - lastFaceAtRef.current;
-        const nowMs = Date.now();
 
-        // Low-cadence phone detection (COCO-SSD). If detected, hold flag for a few seconds.
+        // Low-cadence phone detection (MediaPipe EfficientDet-Lite2). If detected, hold flag for a few seconds.
         if (
           base.hasFace &&
           phoneDetectionEnabled &&
@@ -635,6 +736,7 @@ export function FocusCamera({
           yaw: base.yaw,
           pitch: base.pitch,
           phoneDetected,
+          trackingConfidence: hasTrackedFace ? trackingConfidence : undefined,
         });
 
         if (!base.hasFace && awayFor > AWAY_MS) {
@@ -656,6 +758,8 @@ export function FocusCamera({
           pitch: out.pitch,
           flags: out.flags,
           durations: out.durations,
+          trackingConfidence: base.trackingConfidence,
+          presenceQuality: base.presenceQuality,
         };
 
         onSampleRef.current(compat);

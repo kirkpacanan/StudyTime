@@ -13,6 +13,10 @@ export type FocusFrameResult = {
   yaw: number;
   /** 0–1 rough head pitch deviation (higher = more up/down away) */
   pitch: number;
+  /** Pretrained detector + ROI sharpness — how much to trust this frame (optional). */
+  trackingConfidence?: number;
+  /** Composite framing + detector + sharpness (optional). */
+  presenceQuality?: number;
 };
 
 export type Landmark68 = {
@@ -85,6 +89,22 @@ function headPitchScore(landmarks: Landmark68): number {
   return Math.min(1, dev / 0.55);
 }
 
+function dampenScoresForTrackingUncertainty(
+  score: number,
+  eyesScore: number,
+  faceScore: number,
+  trackingConfidence: number,
+): { score: number; eyesScore: number; faceScore: number } {
+  const tc = Math.min(1, Math.max(0, trackingConfidence));
+  const neutral = 54;
+  const blend = (v: number) => v * tc + neutral * (1 - tc);
+  return {
+    score: blend(score),
+    eyesScore: blend(eyesScore),
+    faceScore: blend(faceScore),
+  };
+}
+
 export function scoreFocusFromLandmarks(
   landmarks: Landmark68 | undefined,
   expressions: Record<string, number> | undefined,
@@ -93,6 +113,9 @@ export function scoreFocusFromLandmarks(
     distractionThreshold: number;
     prevSmoothed: number | null;
     smoothAlpha: number;
+    /** 0–1 trust in landmarks this frame (detector conf × framing × sharpness). Default 1. */
+    trackingConfidence?: number;
+    presenceQuality?: number;
   },
 ): FocusFrameResult {
   if (!landmarks || landmarkPoint(landmarks, 36) == null) {
@@ -128,16 +151,27 @@ export function scoreFocusFromLandmarks(
     exprPenalty += (expressions.angry ?? 0) * 6;
   }
 
-  const eyesScore = Math.round(earScore);
+  let eyesScore = Math.round(earScore);
   const faceRaw =
     100 - yawPenalty - pitchPenalty - exprPenalty * 0.85;
-  const faceScore = Math.round(Math.min(100, Math.max(0, faceRaw)));
+  let faceScore = Math.round(Math.min(100, Math.max(0, faceRaw)));
 
   let score =
     earScore * 0.5 +
     Math.max(0, 100 - yawPenalty - pitchPenalty) * 0.42 -
     exprPenalty;
   score = Math.min(100, Math.max(0, score));
+
+  const tc = opts.trackingConfidence ?? 1;
+  const dampened = dampenScoresForTrackingUncertainty(
+    score,
+    eyesScore,
+    faceScore,
+    tc,
+  );
+  score = dampened.score;
+  eyesScore = Math.round(dampened.eyesScore);
+  faceScore = Math.round(dampened.faceScore);
 
   const alpha = opts.smoothAlpha;
   const smoothed =
@@ -149,7 +183,7 @@ export function scoreFocusFromLandmarks(
   if (smoothed >= opts.focusThreshold) state = "focused";
   else if (smoothed < opts.distractionThreshold) state = "distracted";
 
-  return {
+  const out: FocusFrameResult = {
     score: Math.round(smoothed),
     state,
     rawEar: ear,
@@ -158,5 +192,8 @@ export function scoreFocusFromLandmarks(
     faceScore,
     yaw,
     pitch,
+    trackingConfidence: tc,
   };
+  if (opts.presenceQuality != null) out.presenceQuality = opts.presenceQuality;
+  return out;
 }

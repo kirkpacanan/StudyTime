@@ -34,6 +34,11 @@ export type AttentionMeasurements = {
   /** 0–1 (higher = more pitch dev / looking down/up) */
   pitch: number;
   phoneDetected: boolean;
+  /**
+   * 0–1 trust that framing + pretrained detector + sharpness support landmark scores.
+   * Lower → softer penalties / less drift from noisy yaw/pitch (bad webcam).
+   */
+  trackingConfidence?: number;
 };
 
 export type AttentionFrameResult = {
@@ -105,6 +110,8 @@ export class FocusAttentionEngine {
 
   /** After opening eyes from ~sleep-scale closure, suppress drowsy cap/PERCLOS hangover so score can recover. */
   private postWakeGraceUntilMs: number | null = null;
+  /** Streak while raw measurements look clearly awake — sheds false “drowsy” so score isn’t stuck at the 55 cap. */
+  private alertRecoveryMs = 0;
 
   reset() {
     this.lastNowMs = null;
@@ -135,6 +142,7 @@ export class FocusAttentionEngine {
     };
     this.drowsyTrainCooldownMs = 0;
     this.postWakeGraceUntilMs = null;
+    this.alertRecoveryMs = 0;
   }
 
   update(m: AttentionMeasurements): AttentionFrameResult {
@@ -162,6 +170,14 @@ export class FocusAttentionEngine {
     const HEAD_DOWN_FACE_SCORE = 60;
 
     const hasFace = m.hasFace;
+    const tc = clamp01(m.trackingConfidence ?? 1);
+    /** Brief sustained attentive frames suppress lingering drowsy / 55-score cap. */
+    const ALERT_RECOVERY_DWELL_MS = 420;
+    /** Accumulated engaged time needed before scores can climb into the ~90–100 band (raised each frame via `engagedNow`). */
+    const ENGAGED_FOR_TOP_MS = 11_000;
+    /** Shortcut: unmistakably alert again for a stretch + partial engaged credit → unlock top scores without waiting the full dwell. */
+    const HIGH_SCORE_ALERT_FAST_MS = 1_650;
+    const ENGAGED_PARTIAL_FOR_FAST_TOP_MS = 4_250;
 
     // Consecutive low-EAR streak (same as Python: increment while ear < thresh, else reset to 0)
     if (hasFace && dt > 0) {
@@ -226,12 +242,18 @@ export class FocusAttentionEngine {
         : isClosedEar || mlSleepAssist
       : false;
 
+    // Low tracking confidence → landmark yaw/pitch are less trustworthy (blur / small face).
+    const poseScale = 0.22 + 0.78 * tc;
+    const yawForPose = m.yaw * poseScale;
+    const pitchForPose = m.pitch * poseScale;
+
     // Looking away / head down (require face present)
     const lookingAway = hasFace
-      ? m.yaw >= LOOKING_AWAY_YAW || m.faceScore <= LOOKING_AWAY_FACE_SCORE
+      ? yawForPose >= LOOKING_AWAY_YAW || m.faceScore <= LOOKING_AWAY_FACE_SCORE
       : false;
     const headDown = hasFace
-      ? m.pitch >= HEAD_DOWN_PITCH || (m.faceScore <= HEAD_DOWN_FACE_SCORE && m.pitch >= 0.45)
+      ? pitchForPose >= HEAD_DOWN_PITCH ||
+          (m.faceScore <= HEAD_DOWN_FACE_SCORE && pitchForPose >= 0.45)
       : false;
 
     const phoneDetected = hasFace ? m.phoneDetected : false;
@@ -259,6 +281,25 @@ export class FocusAttentionEngine {
       this.postWakeGraceUntilMs != null && m.nowMs < this.postWakeGraceUntilMs;
     const eyesClosedUi =
       sleepClosed && this.eyesClosedMs >= SLEEP_UI_MIN_CLOSED_MS;
+
+    /** Current frame reads clearly attentive — trims false drowsy + 55-score cap linger. */
+    const clearAlertEvidence =
+      hasFace &&
+      tc >= 0.42 &&
+      !eyesClosedUi &&
+      m.ear >= EAR_OPEN_HYST &&
+      m.eyesScore >= 58 &&
+      m.faceScore >= 55 &&
+      yawForPose <= 0.62 &&
+      pitchForPose <= 0.62;
+    if (hasFace && dt > 0) {
+      this.alertRecoveryMs = clearAlertEvidence
+        ? this.alertRecoveryMs + dt
+        : Math.max(0, this.alertRecoveryMs - dt * 2.75);
+    } else if (!hasFace) {
+      this.alertRecoveryMs = 0;
+    }
+
     this.lookingAwayMs = lookingAway ? this.lookingAwayMs + dt : 0;
     this.headDownMs = headDown ? this.headDownMs + dt : 0;
     this.phoneDetectedMs = phoneDetected ? this.phoneDetectedMs + dt : 0;
@@ -284,8 +325,12 @@ export class FocusAttentionEngine {
         this.perclos.shift();
       }
       // Soft decay of the closed-ms accumulator so it tracks the window roughly.
-      // (Prevents “stuck high” after window moves.)
-      this.perclosClosedMs = Math.max(0, Math.min(windowMs, this.perclosClosedMs - dt * 0.08));
+      // (Prevents “stuck high” after window moves.) Faster decay when visibly alert again.
+      const perclosIdleDecay = clearAlertEvidence ? 0.2 : 0.08;
+      this.perclosClosedMs = Math.max(
+        0,
+        Math.min(windowMs, this.perclosClosedMs - dt * perclosIdleDecay),
+      );
 
       // Blink FSM: count a blink when we go closed -> open and the closure was short.
       if (this.blinkState === "open") {
@@ -427,7 +472,11 @@ export class FocusAttentionEngine {
 
     // Final drowsy decision: ML probability OR heuristic (keeps behavior safe)
     const drowsyRaw = hasFace && (drowsyProb >= 0.62 || drowsyHeuristic);
-    const drowsy = drowsyRaw && !inPostWakeGrace;
+    /** Brief sustained “awake again” wipes drowsy so the score isn’t welded to ~55 cap. */
+    const drowsy =
+      drowsyRaw &&
+      !inPostWakeGrace &&
+      this.alertRecoveryMs < ALERT_RECOVERY_DWELL_MS;
 
     // --- Stable eyes score (ignore normal blinks) ---
     // If eyes are "closed" only briefly (blink), do not penalize the Eyes bar/score.
@@ -439,8 +488,8 @@ export class FocusAttentionEngine {
       if (sleepClosed && this.eyesClosedMs > 0 && this.eyesClosedMs <= 780) {
         return this.lastStableEyesScore;
       }
-      // Otherwise smooth a bit to avoid jitter.
-      const alpha = rawEyesScore < this.lastStableEyesScore ? 0.45 : 0.18;
+      // Otherwise smooth a bit to avoid jitter. Rise faster than fall so recovering into the 90s isn’t sluggish.
+      const alpha = rawEyesScore < this.lastStableEyesScore ? 0.45 : 0.28;
       return this.lastStableEyesScore * (1 - alpha) + rawEyesScore * alpha;
     })();
     this.lastStableEyesScore = stableEyesScore;
@@ -448,27 +497,38 @@ export class FocusAttentionEngine {
     // engaged time gate (only when everything is consistently "good")
     const engagedNow =
       hasFace &&
+      tc >= 0.52 &&
       !phoneDetected &&
       !lookingAway &&
       !headDown &&
       !eyesClosedUi &&
       !drowsy &&
-      stableEyesScore >= 64 &&
-      m.faceScore >= 64 &&
-      m.yaw <= 0.52 &&
-      m.pitch <= 0.54;
+      stableEyesScore >= 61 &&
+      m.faceScore >= 61 &&
+      m.yaw <= 0.55 &&
+      m.pitch <= 0.57;
 
     if (engagedNow) {
-      this.engagedMs = Math.min(60_000, this.engagedMs + dt);
+      const rateBoost =
+        this.alertRecoveryMs >= 650 ? 1.7 : clearAlertEvidence ? 1.25 : 1;
+      this.engagedMs = Math.min(
+        60_000,
+        this.engagedMs + dt * rateBoost,
+      );
     } else {
-      // decay faster than growth so you must re-earn 90–100
-      this.engagedMs = Math.max(0, this.engagedMs - dt * 1.75);
+      // Decay slower when still “somewhat on” so returning to peak doesn’t feel like resetting from zero every dip.
+      this.engagedMs = Math.max(
+        0,
+        this.engagedMs - dt * (clearAlertEvidence ? 1.15 : 1.55),
+      );
     }
 
     // --- base score ---
     // eyes dominates, but head pose + face stability matters for realism.
-    const stabilityPenalty = clamp100((Math.max(0, m.yaw - 0.25) / 0.75) * 35) +
-      clamp100((Math.max(0, m.pitch - 0.25) / 0.75) * 25);
+    const stabilityPenalty =
+      (clamp100((Math.max(0, m.yaw - 0.25) / 0.75) * 35) +
+        clamp100((Math.max(0, m.pitch - 0.25) / 0.75) * 25)) *
+      tc;
     let base =
       stableEyesScore * 0.64 +
       m.faceScore * 0.34 -
@@ -516,17 +576,29 @@ export class FocusAttentionEngine {
       state = this.eyesClosedMs > 1200 ? "distracted" : "drifting";
     }
 
-    // High-score gate: only after sustained engaged window
-    const highGateOk = this.engagedMs >= 25_000;
-    if (!highGateOk) cap = Math.min(cap, 88);
+    // High-score gate: allow ~90–100 only after proving sustained engagement (or shorter fast-track when clearly alert).
+    const highGateOk =
+      this.engagedMs >= ENGAGED_FOR_TOP_MS ||
+      (this.alertRecoveryMs >= HIGH_SCORE_ALERT_FAST_MS &&
+        this.engagedMs >= ENGAGED_PARTIAL_FOR_FAST_TOP_MS);
+
+    /** Without full gate yet, soften ceiling so high-80s can already lean toward ~90 visually. */
+    const softPeakCap = highGateOk ? 100 : 91;
+    if (!highGateOk) cap = Math.min(cap, softPeakCap);
 
     // Compute target (post-cap)
     const target = Math.min(base, cap);
 
-    // --- dynamics: fast drops, slow gains ---
+    // --- dynamics: fast drops; recover faster after a trough so “back on task” moves score up visibly ---
     const prev = this.lastScore ?? target;
     const goingUp = target > prev;
-    const alphaUp = 0.06; // slow recovery
+    const bouncingFromTrough =
+      prev < 52 &&
+      target > prev + 14 &&
+      this.alertRecoveryMs >= ALERT_RECOVERY_DWELL_MS;
+    const alphaUpBase = bouncingFromTrough ? 0.22 : prev < 50 && target > prev ? 0.14 : 0.09;
+    const alphaUp =
+      goingUp && highGateOk && target >= 92 ? alphaUpBase * 1.2 : alphaUpBase;
     const alphaDown = 0.35; // quick penalty
     const alpha = goingUp ? alphaUp : alphaDown;
     const smoothed = prev * (1 - alpha) + target * alpha;
