@@ -208,6 +208,13 @@ export function FocusCamera({
   const eyeInFlightRef = useRef<boolean>(false);
   const eyeFailCountRef = useRef<number>(0);
   const eyeDisabledRef = useRef<boolean>(false);
+  /** Avoid setState churn: single loading + single ready/error/disabled per session. */
+  const eyeHudOnceRef = useRef({
+    loading: false,
+    ready: false,
+    error: false,
+    disabledNotified: false,
+  });
 
   const phoneHitTimesRef = useRef<number[]>([]);
   const phoneScoreEmaRef = useRef<number>(0);
@@ -223,10 +230,10 @@ export function FocusCamera({
     status: "idle" | "loading" | "ready" | "detected" | "error" | "disabled";
     lastScore: number | null;
   }>({ enabled: true, status: "idle", lastScore: null });
-  const [eyeUi, setEyeUi] = useState<{
-    status: "idle" | "loading" | "ready" | "error" | "disabled";
-    lastOpenness: number | null;
-  }>({ status: "idle", lastOpenness: null });
+  /** HUD for eye TF model; updated at most once per phase to avoid flicker. */
+  const [eyeHud, setEyeHud] = useState<
+    "idle" | "loading" | "ready" | "error" | "disabled"
+  >("idle");
   const [status, setStatus] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [modelsReady, setModelsReady] = useState(false);
@@ -250,8 +257,14 @@ export function FocusCamera({
       eyeInFlightRef.current = false;
       eyeFailCountRef.current = 0;
       eyeDisabledRef.current = false;
+      eyeHudOnceRef.current = {
+        loading: false,
+        ready: false,
+        error: false,
+        disabledNotified: false,
+      };
       setPhoneUi({ enabled: true, status: "idle", lastScore: null });
-      setEyeUi({ status: "idle", lastOpenness: null });
+      setEyeHud("idle");
     }
   }, [enabled, modelsReady, active]);
   onSampleRef.current = onSample;
@@ -350,21 +363,13 @@ export function FocusCamera({
   );
 
   const runEyeOpenness = useCallback(
-    async (
-      video: HTMLVideoElement,
-      landmarks: { positions: { x: number; y: number }[] },
-    ) => {
+    async (video: HTMLVideoElement, landmarks: { positions: { x: number; y: number }[] }) => {
       if (eyeDisabledRef.current) return;
       if (!eyeScratchRef.current && typeof document !== "undefined") {
         eyeScratchRef.current = document.createElement("canvas");
       }
       const canvas = eyeScratchRef.current;
       if (!canvas) return;
-
-      setEyeUi((s) => ({
-        ...s,
-        status: eyeModelRef.current ? "ready" : "loading",
-      }));
 
       try {
         const tf = await import("@tensorflow/tfjs");
@@ -379,7 +384,14 @@ export function FocusCamera({
         if (!eyeModelRef.current) {
           eyeModelRef.current = await tf.loadGraphModel(EYE_MODEL_URL);
         }
+
         const model = eyeModelRef.current;
+        if (!model) return;
+
+        if (!eyeHudOnceRef.current.ready) {
+          eyeHudOnceRef.current.ready = true;
+          setEyeHud("ready");
+        }
 
         const pos = landmarks.positions;
         const pts = [...LEFT_EYE_I, ...RIGHT_EYE_I]
@@ -433,14 +445,19 @@ export function FocusCamera({
         if (out != null) {
           eyeOpennessCachedRef.current = out;
           eyeFailCountRef.current = 0;
-          setEyeUi({ status: "ready", lastOpenness: out });
         }
       } catch {
         eyeFailCountRef.current += 1;
-        setEyeUi((s) => ({ ...s, status: "error" }));
+        if (!eyeHudOnceRef.current.error) {
+          eyeHudOnceRef.current.error = true;
+          setEyeHud("error");
+        }
         if (eyeFailCountRef.current >= 5) {
           eyeDisabledRef.current = true;
-          setEyeUi((s) => ({ ...s, status: "disabled" }));
+          if (!eyeHudOnceRef.current.disabledNotified) {
+            eyeHudOnceRef.current.disabledNotified = true;
+            setEyeHud("disabled");
+          }
         }
       } finally {
         eyeInFlightRef.current = false;
@@ -588,6 +605,7 @@ export function FocusCamera({
           phoneDetectionEnabled && nowMs <= phoneDetectedUntilRef.current;
 
         const hasTrackedFace = base.hasFace && awayFor <= AWAY_MS;
+
         if (
           hasTrackedFace &&
           landmarks &&
@@ -595,6 +613,10 @@ export function FocusCamera({
           nowMs - lastEyeInferAtRef.current >= EYE_DETECT_EVERY_MS &&
           !eyeInFlightRef.current
         ) {
+          if (!eyeHudOnceRef.current.loading) {
+            eyeHudOnceRef.current.loading = true;
+            setEyeHud("loading");
+          }
           lastEyeInferAtRef.current = nowMs;
           eyeInFlightRef.current = true;
           void runEyeOpenness(video, landmarks).catch(() => {
@@ -716,26 +738,21 @@ export function FocusCamera({
                     ? "Phone detected"
                     : "Phone Detection on"}
             </span>
-            <span
-              className={
-                "rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider " +
-                (eyeDisabledRef.current
-                  ? "bg-white/10 text-zinc-200"
-                  : eyeUi.status === "loading"
-                    ? "bg-amber-500/50 text-white"
-                    : eyeUi.status === "error"
-                      ? "bg-amber-900/55 text-amber-100"
-                      : "bg-white/10 text-zinc-200")
-              }
-            >
-              {eyeDisabledRef.current
-                ? "Eye model off"
-                : eyeUi.status === "loading"
-                  ? "Eye model loading"
-                  : eyeUi.status === "error"
-                    ? "Eye model error"
-                    : "Eye model on"}
-            </span>
+            {eyeHud !== "idle" ? (
+              <span
+                className="rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider bg-white/10 text-zinc-200"
+              >
+                {eyeHud === "loading"
+                  ? "Eye assist starting"
+                  : eyeHud === "ready"
+                    ? "Eye assist on"
+                    : eyeHud === "error"
+                      ? "Eye assist unavailable"
+                      : eyeHud === "disabled"
+                        ? "Eye assist off"
+                        : ""}
+              </span>
+            ) : null}
           </div>
         ) : null}
       </div>

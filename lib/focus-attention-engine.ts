@@ -23,7 +23,7 @@ export type AttentionMeasurements = {
   hasFace: boolean;
   /** raw EAR (~0.1–0.35 typical) */
   ear: number;
-  /** ~0–1 eye openness from pretrained TFJS model (optional; higher ≈ more open). */
+  /** ~0–1 eye openness from TFJS eye model; gated until EAR shows sustained closure so blinks are neutral. */
   eyeOpennessMl?: number | null;
   /** 0–100 */
   eyesScore: number;
@@ -52,6 +52,9 @@ export type AttentionFrameResult = {
 const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
 const clamp100 = (x: number) => Math.min(100, Math.max(0, x));
 
+/** Blinks are shorter than this; Sleep UI / badge stay calm until closure lasts longer. */
+export const SLEEP_UI_MIN_CLOSED_MS = 480;
+
 type PerclosPoint = { t: number; closed: boolean };
 
 type OnlineDrowsyModel = {
@@ -69,6 +72,11 @@ export class FocusAttentionEngine {
   private lastStableEyesScore: number | null = null;
 
   private eyesClosedMs = 0;
+  /** Consecutive ms eyes read “closed” from EAR/landmarks only (no TF eye model). */
+  private eyesClosedEarMs = 0;
+  private lastIsClosedEar = false;
+  /** TF model reports shut eyes — accumulates so sleep UX works when EAR is ambiguous. */
+  private mlAssistClosedMs = 0;
   private lowEarConsecutiveMs = 0;
   private lookingAwayMs = 0;
   private headDownMs = 0;
@@ -95,11 +103,17 @@ export class FocusAttentionEngine {
   };
   private drowsyTrainCooldownMs = 0;
 
+  /** After opening eyes from ~sleep-scale closure, suppress drowsy cap/PERCLOS hangover so score can recover. */
+  private postWakeGraceUntilMs: number | null = null;
+
   reset() {
     this.lastNowMs = null;
     this.lastScore = null;
     this.lastStableEyesScore = null;
     this.eyesClosedMs = 0;
+    this.eyesClosedEarMs = 0;
+    this.lastIsClosedEar = false;
+    this.mlAssistClosedMs = 0;
     this.lowEarConsecutiveMs = 0;
     this.lookingAwayMs = 0;
     this.headDownMs = 0;
@@ -120,6 +134,7 @@ export class FocusAttentionEngine {
       var: [1, 1, 1, 1, 1],
     };
     this.drowsyTrainCooldownMs = 0;
+    this.postWakeGraceUntilMs = null;
   }
 
   update(m: AttentionMeasurements): AttentionFrameResult {
@@ -135,7 +150,10 @@ export class FocusAttentionEngine {
     const DROWSY_CONSEC_MS = Math.round((1000 / 30) * SCRIPT_FRAME_CHECK);
     /** Fallback when landmarks are ambiguous (glasses/lighting) — still EAR-heavy */
     const EYE_CLOSED_SCORE_FALLBACK = 12;
-    /** Pretrained eye-openness graph (mirrory-dev/eyeblink); layered on EAR. */
+    /** Pretrained eye openness: only AFTER this many ms of EAR-closed streak (blinks stay shorter). */
+    const ML_APPLY_AFTER_EAR_CLOSED_MS = 620;
+    /** TF says shut for this long → treat as closed for sleep countdown even if EAR is stuck high. */
+    const ML_SLEEP_ASSIST_MS = 320;
     const ML_CLOSED = 0.22;
     const ML_OPEN = 0.35;
     const LOOKING_AWAY_YAW = 0.55;
@@ -156,7 +174,6 @@ export class FocusAttentionEngine {
     }
 
     // Eyes closed: script rule is ear < 0.25; hysteresis so we don't flip open on one noisy frame
-    const wasClosed = this.eyesClosedMs > 0;
     const earClosedScript = hasFace && m.ear > 0 && m.ear < EAR_THRESH_SCRIPT;
     const earOpenScript = hasFace && m.ear >= EAR_OPEN_HYST;
     const closedFallback =
@@ -164,18 +181,49 @@ export class FocusAttentionEngine {
       m.eyesScore <= EYE_CLOSED_SCORE_FALLBACK &&
       m.ear > 0 &&
       m.ear < 0.32;
-    const mlClosed =
+
+    const isClosedEar = hasFace
+      ? this.lastIsClosedEar
+        ? !(earOpenScript && !closedFallback)
+        : earClosedScript || closedFallback
+      : false;
+    if (hasFace && dt > 0) {
+      this.eyesClosedEarMs = isClosedEar ? this.eyesClosedEarMs + dt : 0;
+    } else if (!hasFace) {
+      this.eyesClosedEarMs = 0;
+    }
+    this.lastIsClosedEar = isClosedEar;
+
+    const mlPenaltyOk =
+      hasFace && this.eyesClosedEarMs > ML_APPLY_AFTER_EAR_CLOSED_MS;
+    const mlClosedRaw =
       hasFace && m.eyeOpennessMl != null && m.eyeOpennessMl <= ML_CLOSED;
-    const mlOpen =
-      hasFace && m.eyeOpennessMl != null && m.eyeOpennessMl >= ML_OPEN;
-    const mlClearlyOpen =
-      hasFace && m.eyeOpennessMl != null && m.eyeOpennessMl >= ML_OPEN + 0.07;
-    const isClosed = hasFace
-      ? wasClosed
-        ? !((earOpenScript || mlOpen) && !closedFallback)
-        : (earClosedScript || mlClosed || closedFallback) &&
-            // Don't start “closed” on marginal EAR if the eye model says clearly open.
-            !(mlClearlyOpen && !earClosedScript && !(m.ear > 0 && m.ear < 0.2))
+
+    if (hasFace && dt > 0) {
+      if (m.eyeOpennessMl != null && m.eyeOpennessMl <= ML_CLOSED) {
+        this.mlAssistClosedMs += dt;
+      } else if (m.eyeOpennessMl != null && m.eyeOpennessMl >= ML_OPEN) {
+        this.mlAssistClosedMs = 0;
+      } else if (m.eyeOpennessMl != null) {
+        this.mlAssistClosedMs = Math.max(0, this.mlAssistClosedMs - dt * 1.5);
+      }
+    } else if (!hasFace) {
+      this.mlAssistClosedMs = 0;
+    }
+
+    const mlSleepAssist =
+      hasFace &&
+      m.eyeOpennessMl != null &&
+      m.eyeOpennessMl <= ML_CLOSED &&
+      this.mlAssistClosedMs >= ML_SLEEP_ASSIST_MS;
+
+    // Sleep countdown + eyesClosed flag: EAR/landmarks OR sustained TF “shut” (fixes stuck EAR when lids are down).
+    // While already counting, release only when ear or TF clearly open (same spirit as previous hysteresis).
+    const sleepClosed = hasFace
+      ? this.eyesClosedMs > 0
+        ? closedFallback ||
+          !(earOpenScript || (m.eyeOpennessMl != null && m.eyeOpennessMl >= ML_OPEN))
+        : isClosedEar || mlSleepAssist
       : false;
 
     // Looking away / head down (require face present)
@@ -189,7 +237,28 @@ export class FocusAttentionEngine {
     const phoneDetected = hasFace ? m.phoneDetected : false;
 
     // accumulate durations
-    this.eyesClosedMs = isClosed ? this.eyesClosedMs + dt : 0;
+    const eyesClosedStreakBefore = this.eyesClosedMs;
+    this.eyesClosedMs = sleepClosed ? this.eyesClosedMs + dt : 0;
+
+    if (sleepClosed) {
+      this.postWakeGraceUntilMs = null;
+    } else if (eyesClosedStreakBefore >= 9_000) {
+      // Opened eyes after near-sleep closure — PERCLOS window still “remembers” ~10s shut → false drowsy + cap 55.
+      this.postWakeGraceUntilMs = m.nowMs + 22_000;
+      this.perclos = [];
+      this.perclosClosedMs = 0;
+    }
+
+    if (
+      this.postWakeGraceUntilMs != null &&
+      m.nowMs >= this.postWakeGraceUntilMs
+    ) {
+      this.postWakeGraceUntilMs = null;
+    }
+    const inPostWakeGrace =
+      this.postWakeGraceUntilMs != null && m.nowMs < this.postWakeGraceUntilMs;
+    const eyesClosedUi =
+      sleepClosed && this.eyesClosedMs >= SLEEP_UI_MIN_CLOSED_MS;
     this.lookingAwayMs = lookingAway ? this.lookingAwayMs + dt : 0;
     this.headDownMs = headDown ? this.headDownMs + dt : 0;
     this.phoneDetectedMs = phoneDetected ? this.phoneDetectedMs + dt : 0;
@@ -200,9 +269,9 @@ export class FocusAttentionEngine {
     const windowMs = 60_000;
     const cutoff = now - windowMs;
     const nearClosed = hasFace
-      ? isClosed ||
+      ? sleepClosed ||
           (m.ear > 0 && m.ear < EAR_THRESH_SCRIPT) ||
-          mlClosed
+          (mlPenaltyOk && mlClosedRaw)
       : false;
 
     if (dt > 0 && hasFace) {
@@ -263,7 +332,10 @@ export class FocusAttentionEngine {
 
     // Baseline heuristic (used as pseudo-labels for online ML)
     const mlVeryShut =
-      hasFace && m.eyeOpennessMl != null && m.eyeOpennessMl <= 0.18;
+      hasFace &&
+      mlPenaltyOk &&
+      m.eyeOpennessMl != null &&
+      m.eyeOpennessMl <= 0.18;
     const drowsyHeuristic =
       hasFace &&
       (perclosRatio >= 0.22 ||
@@ -271,11 +343,10 @@ export class FocusAttentionEngine {
         this.lowEarConsecutiveMs >= DROWSY_CONSEC_MS ||
         (perclosRatio >= 0.16 && noBlinkForMs >= 12_000) ||
         (perclosRatio >= 0.14 && blinkRatePerMin <= 4) ||
-        // Low openness on the pretrained channel + softened eyelids (noise-resistant).
         (mlVeryShut &&
           m.ear > 0 &&
           m.ear < 0.3 &&
-          (m.eyesScore < 62 || mlClosed)));
+          (m.eyesScore < 62 || mlClosedRaw)));
 
     // --- Online ML drowsiness probability ---
     // Features (all bounded / normalized):
@@ -337,7 +408,7 @@ export class FocusAttentionEngine {
             !drowsyHeuristic &&
             !lookingAway &&
             !headDown &&
-            !isClosed &&
+            !eyesClosedUi &&
             m.faceScore >= 70 &&
             m.eyesScore >= 70
           ? 0
@@ -355,7 +426,8 @@ export class FocusAttentionEngine {
     }
 
     // Final drowsy decision: ML probability OR heuristic (keeps behavior safe)
-    const drowsy = hasFace && (drowsyProb >= 0.62 || drowsyHeuristic);
+    const drowsyRaw = hasFace && (drowsyProb >= 0.62 || drowsyHeuristic);
+    const drowsy = drowsyRaw && !inPostWakeGrace;
 
     // --- Stable eyes score (ignore normal blinks) ---
     // If eyes are "closed" only briefly (blink), do not penalize the Eyes bar/score.
@@ -363,8 +435,8 @@ export class FocusAttentionEngine {
     const stableEyesScore = (() => {
       if (!hasFace) return 0;
       if (this.lastStableEyesScore == null) return rawEyesScore;
-      // Ignore brief closures up to ~600ms (blink-ish) so the bar doesn't drop on blinks.
-      if (isClosed && this.eyesClosedMs > 0 && this.eyesClosedMs <= 600) {
+      // Ignore brief closures up to ~780ms so normal/long blinks don’t drag the eyes score down.
+      if (sleepClosed && this.eyesClosedMs > 0 && this.eyesClosedMs <= 780) {
         return this.lastStableEyesScore;
       }
       // Otherwise smooth a bit to avoid jitter.
@@ -379,7 +451,7 @@ export class FocusAttentionEngine {
       !phoneDetected &&
       !lookingAway &&
       !headDown &&
-      !isClosed &&
+      !eyesClosedUi &&
       !drowsy &&
       stableEyesScore >= 64 &&
       m.faceScore >= 64 &&
@@ -481,7 +553,7 @@ export class FocusAttentionEngine {
       flags: {
         hasFace,
         phoneDetected,
-        eyesClosed: isClosed,
+        eyesClosed: eyesClosedUi,
         lookingAway,
         headDown,
         drowsy,

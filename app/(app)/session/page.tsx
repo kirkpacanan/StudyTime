@@ -969,7 +969,7 @@ export default function SessionPage() {
                         <div className="h-2 overflow-hidden rounded-full border border-white/25 bg-white/50 backdrop-blur-sm dark:border-white/[0.06] dark:bg-slate-800/60">
                           <div
                             className={cn(
-                              "h-full rounded-full transition-[width] duration-200",
+                              "h-full rounded-full transition-[width] duration-700 ease-out motion-reduce:transition-none",
                               lastSample.state === "sleeping"
                                 ? "bg-gradient-to-r from-red-500 to-rose-500"
                                 : eyesClosed
@@ -980,9 +980,10 @@ export default function SessionPage() {
                           />
                         </div>
                         <p className="mt-1.5 text-[10px] leading-snug text-muted">
-                          Sleeping triggers at{" "}
+                          Short blinks are ignored; progress starts after sustained
+                          closure. Sleeping triggers at{" "}
                           <span className="font-medium text-text">10s</span>{" "}
-                          continuous eye closure.
+                          continuous closure.
                         </p>
                       </div>
                     </div>
