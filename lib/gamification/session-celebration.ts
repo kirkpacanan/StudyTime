@@ -26,13 +26,13 @@ export type SessionCelebrationPayload = {
   newlyUnlocked: { id: AchievementId; title: string; description: string }[];
 };
 
-export function computeSessionCelebration(
+export async function computeSessionCelebration(
   user: { id: string; name: string },
   latestSession: StudySession,
-): SessionCelebrationPayload | null {
+): Promise<SessionCelebrationPayload | null> {
   if (typeof window === "undefined") return null;
 
-  const sessions = getSessionsForUser(user.id);
+  const sessions = await getSessionsForUser(user.id);
   const monthKey = currentYearMonth();
 
   const monthlyLb = buildMonthlyLeaderboard(user, sessions, monthKey);

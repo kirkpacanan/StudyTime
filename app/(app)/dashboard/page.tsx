@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { useAuth } from "@/hooks/useAuth";
 import { buildWeeklyReport } from "@/lib/reports";
 import { getSessionsForUser } from "@/lib/storage";
+import type { StudySession } from "@/lib/types";
 import {
   BarChart3,
   ChevronRight,
@@ -137,16 +138,30 @@ export default function DashboardPage() {
   const reduce = reduceMotion === true;
   const { section, fadeUp } = useDashboardMotion(reduce);
   const [tick, setTick] = useState(0);
+  const [sessions, setSessions] = useState<StudySession[]>([]);
 
   useEffect(() => {
     const id = window.setInterval(() => setTick((t) => t + 1), 30_000);
     return () => clearInterval(id);
   }, []);
 
+  useEffect(() => {
+    if (!user) {
+      setSessions([]);
+      return;
+    }
+    let cancelled = false;
+    void getSessionsForUser(user.id).then((s) => {
+      if (!cancelled) setSessions(s);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [user, tick]);
+
   const stats = useMemo(() => {
     void tick;
     if (!user) return null;
-    const sessions = getSessionsForUser(user.id);
     const report = buildWeeklyReport(sessions);
     const now = new Date();
     const todaySessions = sessions.filter((s) =>
@@ -173,7 +188,7 @@ export default function DashboardPage() {
       todayAvg,
       weekSessionCount: weekSessions.length,
     };
-  }, [user, tick]);
+  }, [user, tick, sessions]);
 
   if (!user) {
     return (

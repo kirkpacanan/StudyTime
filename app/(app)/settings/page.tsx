@@ -15,7 +15,13 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (!user) return;
-    setForm(getSettings(user.id));
+    let cancelled = false;
+    void getSettings(user.id).then((s) => {
+      if (!cancelled) setForm(s);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [user]);
 
   function update<K extends keyof UserSettings>(key: K, value: UserSettings[K]) {
@@ -23,9 +29,9 @@ export default function SettingsPage() {
     setSaved(false);
   }
 
-  function save() {
+  async function save() {
     if (!user) return;
-    saveSettings(user.id, {
+    await saveSettings(user.id, {
       ...form,
       focusMinutes: Math.max(5, Math.min(120, form.focusMinutes)),
       shortBreakMinutes: Math.max(1, Math.min(60, form.shortBreakMinutes)),

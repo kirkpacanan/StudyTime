@@ -13,6 +13,7 @@ import {
 import { currentYearMonth } from "@/lib/gamification/stats";
 import { getUnlockedAchievements } from "@/lib/gamification/rank-storage";
 import { getSessionsForUser } from "@/lib/storage";
+import type { StudySession } from "@/lib/types";
 import { motion } from "framer-motion";
 import {
   Crown,
@@ -24,7 +25,7 @@ import {
   Zap,
 } from "lucide-react";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 const ICONS = {
   target: Target,
@@ -38,10 +39,20 @@ const ICONS = {
 export default function LeaderboardPage() {
   const { user, ready } = useAuth();
   const [tab, setTab] = useState<"monthly" | "all">("monthly");
+  const [sessions, setSessions] = useState<StudySession[]>([]);
 
-  const sessions = useMemo(() => {
-    if (!user) return [];
-    return getSessionsForUser(user.id);
+  useEffect(() => {
+    if (!user) {
+      setSessions([]);
+      return;
+    }
+    let cancelled = false;
+    void getSessionsForUser(user.id).then((s) => {
+      if (!cancelled) setSessions(s);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [user]);
 
   const monthlyResult = useMemo(() => {

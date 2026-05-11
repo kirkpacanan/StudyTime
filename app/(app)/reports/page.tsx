@@ -6,20 +6,29 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { StatCard } from "@/components/StatCard";
 import { useAuth } from "@/hooks/useAuth";
-import { buildWeeklyReport } from "@/lib/reports";
+import { buildWeeklyReport, type WeeklyReport } from "@/lib/reports";
 import { getSessionsForUser } from "@/lib/storage";
 import { BarChart3, Clock, Flame, Target } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 export default function ReportsPage() {
   const { user } = useAuth();
   const [tick, setTick] = useState(0);
+  const [report, setReport] = useState<WeeklyReport | null>(null);
 
-  const report = useMemo(() => {
+  useEffect(() => {
     void tick;
-    if (!user) return null;
-    const sessions = getSessionsForUser(user.id);
-    return buildWeeklyReport(sessions);
+    if (!user) {
+      setReport(null);
+      return;
+    }
+    let cancelled = false;
+    void getSessionsForUser(user.id).then((sessions) => {
+      if (!cancelled) setReport(buildWeeklyReport(sessions));
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [user, tick]);
 
   function downloadWeeklyJson() {

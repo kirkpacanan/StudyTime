@@ -48,7 +48,7 @@ export function computeSessionStats(
   };
 }
 
-export function persistStudySession(
+export async function persistStudySession(
   userId: string,
   startedAt: string,
   samples: FocusSample[],
@@ -71,6 +71,6 @@ export function persistStudySession(
     samples,
     events,
   };
-  appendSession(session);
+  await appendSession(session);
   return session;
 }

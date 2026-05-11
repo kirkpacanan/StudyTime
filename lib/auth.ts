@@ -1,3 +1,4 @@
+import type { User as SupabaseUser } from "@supabase/supabase-js";
 import type { UserRecord } from "./types";
 import { digestHex, randomSalt } from "./password";
 import {
@@ -8,6 +9,8 @@ import {
   setCurrentUserId,
 } from "./storage";
 import { DEFAULT_SETTINGS } from "./types";
+import { getSupabaseBrowser } from "./supabase/client";
+import { isSupabaseEnabled } from "./supabase/config";
 
 export type PublicUser = Omit<UserRecord, "passwordHash" | "salt">;
 
@@ -20,7 +23,22 @@ function toPublic(u: UserRecord): PublicUser {
   };
 }
 
+export function mapSupabaseUser(user: SupabaseUser): PublicUser {
+  const meta = user.user_metadata as Record<string, unknown> | undefined;
+  const name =
+    (typeof meta?.name === "string" && meta.name.trim()) ||
+    user.email?.split("@")[0] ||
+    "Student";
+  return {
+    id: user.id,
+    email: user.email ?? "",
+    name,
+    createdAt: user.created_at ?? new Date().toISOString(),
+  };
+}
+
 export function getCurrentUser(): PublicUser | null {
+  if (isSupabaseEnabled()) return null;
   const id = getCurrentUserId();
   if (!id) return null;
   const u = getUsers().find((x) => x.id === id);
@@ -36,6 +54,28 @@ export async function signUp(
   if (!normalized || !password) {
     return { ok: false, error: "Email and password are required." };
   }
+
+  if (isSupabaseEnabled()) {
+    const supabase = getSupabaseBrowser();
+    const { data, error } = await supabase.auth.signUp({
+      email: normalized,
+      password,
+      options: {
+        data: { name: name.trim() || "Student" },
+      },
+    });
+    if (error) return { ok: false, error: error.message };
+    if (!data.user) return { ok: false, error: "Sign up failed." };
+    if (!data.session) {
+      return {
+        ok: false,
+        error:
+          "Account created. Confirm your email if required, then sign in (check Supabase Auth settings).",
+      };
+    }
+    return { ok: true, user: mapSupabaseUser(data.user) };
+  }
+
   const users = getUsers();
   if (users.some((u) => u.email === normalized)) {
     return { ok: false, error: "An account with this email already exists." };
@@ -52,7 +92,7 @@ export async function signUp(
   };
   users.push(user);
   saveUsers(users);
-  saveSettings(user.id, { ...DEFAULT_SETTINGS });
+  await saveSettings(user.id, { ...DEFAULT_SETTINGS });
   setCurrentUserId(user.id);
   return { ok: true, user: toPublic(user) };
 }
@@ -62,6 +102,18 @@ export async function signIn(
   password: string,
 ): Promise<{ ok: true; user: PublicUser } | { ok: false; error: string }> {
   const normalized = email.trim().toLowerCase();
+
+  if (isSupabaseEnabled()) {
+    const supabase = getSupabaseBrowser();
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: normalized,
+      password,
+    });
+    if (error) return { ok: false, error: error.message };
+    if (!data.user) return { ok: false, error: "Invalid email or password." };
+    return { ok: true, user: mapSupabaseUser(data.user) };
+  }
+
   const users = getUsers();
   const user = users.find((u) => u.email === normalized);
   if (!user) return { ok: false, error: "Invalid email or password." };
@@ -73,12 +125,18 @@ export async function signIn(
   return { ok: true, user: toPublic(user) };
 }
 
-export function signOut() {
+export async function signOut(): Promise<void> {
+  if (isSupabaseEnabled()) {
+    const supabase = getSupabaseBrowser();
+    await supabase.auth.signOut();
+    return;
+  }
   setCurrentUserId(null);
 }
 
-/** For demo / tests: reset password for known user */
+/** For demo / tests: reset password for known user (local auth only). */
 export async function setUserPassword(userId: string, password: string) {
+  if (isSupabaseEnabled()) return;
   const users = getUsers();
   const idx = users.findIndex((u) => u.id === userId);
   if (idx < 0) return;

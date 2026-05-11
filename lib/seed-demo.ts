@@ -77,6 +77,8 @@ function makeSession(
 
 export async function seedDemoData(): Promise<void> {
   if (typeof window === "undefined") return;
+  const { isSupabaseEnabled } = await import("./supabase/config");
+  if (isSupabaseEnabled()) return;
   if (isBootstrapped()) return;
 
   const users = getUsers();
@@ -99,12 +101,12 @@ export async function seedDemoData(): Promise<void> {
     saveUsers(users);
   }
 
-  saveSettings(demoUser.id, { ...DEFAULT_SETTINGS });
+  await saveSettings(demoUser.id, { ...DEFAULT_SETTINGS });
 
   for (let d = 0; d < 7; d++) {
     const sessionsPerDay = Math.floor(randomBetween(1, 3.99));
     for (let i = 0; i < sessionsPerDay; i++) {
-      appendSession(makeSession(demoUser.id, d, i));
+      await appendSession(makeSession(demoUser.id, d, i));
     }
   }
 

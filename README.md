@@ -1,13 +1,14 @@
 # StudyTime
 
-**StudyTime** is a minimalistic web prototype for an IoT-style smart study monitoring system: live webcam focus detection (face landmarks + eye openness heuristics), Pomodoro study sessions, and weekly performance reports. Data is stored in **LocalStorage** (no backend).
+**StudyTime** is a minimalistic web prototype for an IoT-style smart study monitoring system: live webcam focus detection (face landmarks + eye openness heuristics), Pomodoro study sessions, and weekly performance reports. By default data lives in **LocalStorage** with mock auth; you can optionally connect **[Supabase](https://supabase.com/)** for cloud auth and synced sessions/settings.
 
 ## Stack
 
 - Next.js 14 (App Router) + TypeScript + Tailwind CSS  
 - `face-api.js` for browser-side vision  
 - Recharts for weekly charts  
-- Mock auth (SHA-256 + salt) with a seeded demo account  
+- Mock auth (SHA-256 + salt) with a seeded demo account, or **Supabase Auth** when env vars are set  
+- Optional **Supabase Postgres** for `profiles`, `user_settings`, and `study_sessions`  
 
 ## Quick start
 
@@ -26,6 +27,16 @@ After the first load, a demo account is seeded:
 - **Password:** `demo1234`  
 
 The demo user includes sample sessions for the last 7 days so **Reports** is populated immediately.
+
+## Supabase (optional)
+
+1. Create a project at [supabase.com](https://supabase.com/) and open **SQL Editor**.
+2. Paste and run the migration in **`supabase/migrations/20240512000000_studytime_init.sql`** (tables, RLS, and `on_auth_user_created` trigger for `profiles` + default `user_settings`).
+3. In **Project Settings → API**, copy the **Project URL** and **anon public** key.
+4. Add **`/.env.local`** (see **`.env.example`**) with `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`, then restart `npm run dev`.
+5. Under **Authentication → Providers → Email**, consider turning **Confirm email** off while developing so sign-up can sign in immediately.
+
+When these variables are set, the app uses **Supabase Auth** instead of local mock users, and reads/writes sessions and settings to Postgres. **Gamification** snapshots (leaderboard ranks, achievements) still use **localStorage** unless you extend the schema.
 
 ## Face-API model weights (one-time)
 

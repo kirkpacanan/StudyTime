@@ -285,7 +285,13 @@ export default function SessionPage() {
 
   useEffect(() => {
     if (!user) return;
-    setSettings(getSettings(user.id));
+    let cancelled = false;
+    void getSettings(user.id).then((s) => {
+      if (!cancelled) setSettings(s);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [user]);
 
   useEffect(() => {
@@ -359,7 +365,7 @@ export default function SessionPage() {
 
   completeCurrentPhaseRef.current = completeCurrentPhase;
 
-  const endSession = useCallback(() => {
+  const endSession = useCallback(async () => {
     alarmRef.current?.stop();
     const started = sessionStartedAtRef.current;
     const samples = [...samplesRef.current];
@@ -377,7 +383,7 @@ export default function SessionPage() {
     let saved = false;
     let celebration: SessionCelebrationPayload | null = null;
     if (user && started && samples.length > 0) {
-      const session = persistStudySession(
+      const session = await persistStudySession(
         user.id,
         started,
         samples,
@@ -387,7 +393,7 @@ export default function SessionPage() {
         focusThreshold,
       );
       saved = true;
-      celebration = computeSessionCelebration(user, session);
+      celebration = await computeSessionCelebration(user, session);
     }
 
     setRunning(false);
