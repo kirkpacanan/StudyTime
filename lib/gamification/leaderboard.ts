@@ -8,6 +8,8 @@ import {
   totalStudyHours,
 } from "./stats";
 
+export { currentYearMonth } from "./stats";
+
 export type LeaderboardRow = {
   id: string;
   rank: number;
@@ -22,78 +24,18 @@ export type LeaderboardRow = {
   composite: number;
 };
 
-function mulberry32(seed: number) {
-  return function () {
-    let t = (seed += 0x6d2b79f5);
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
+export type SupabaseLeaderboardRpcRow = {
+  user_id: string;
+  display_name: string | null;
+  total_focus_score: number;
+  streak_days: number;
+  study_hours: number;
+  focus_accuracy: number;
+  composite_score: number;
+};
 
-function avatarUrlForSeed(seed: string): string {
+export function avatarUrlForSeed(seed: string): string {
   return `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(seed)}&backgroundColor=b6e3f4,c0aede,d1d4f9,ffd5dc,ffdfbf`;
-}
-
-/** Synthetic global competitors — deterministic from seed so leaderboard is stable per month. */
-function syntheticRows(
-  count: number,
-  seedStr: string,
-): Omit<LeaderboardRow, "rank" | "isCurrentUser">[] {
-  let seedSum = 0;
-  for (let i = 0; i < seedStr.length; i++) {
-    seedSum += seedStr.charCodeAt(i);
-  }
-  const seed = seedSum % 2147483647 || 1;
-  const rnd = mulberry32(seed);
-  const first = [
-    "Alex",
-    "Jordan",
-    "Sam",
-    "Riley",
-    "Casey",
-    "Morgan",
-    "Quinn",
-    "Avery",
-    "Skyler",
-    "Reese",
-  ];
-  const last = [
-    "Kim",
-    "Nguyen",
-    "Patel",
-    "Silva",
-    "Park",
-    "Lopez",
-    "Chen",
-    "Singh",
-    "Reed",
-    "Fox",
-  ];
-  const out: Omit<LeaderboardRow, "rank" | "isCurrentUser">[] = [];
-  for (let i = 0; i < count; i++) {
-    const r = rnd();
-    const name = `${first[Math.floor(rnd() * first.length)]} ${last[Math.floor(rnd() * last.length)]}`;
-    const id = `bot_${seedStr}_${i}`;
-    const points = Math.round(800 + r * 12000 + rnd() * 4000);
-    const streak = Math.min(120, Math.floor(rnd() * 45));
-    const hours = Math.round((rnd() * 80 + 5) * 10) / 10;
-    const accuracy = Math.min(99, Math.round(55 + rnd() * 44));
-    const composite = Math.round(
-      points * 1 + streak * 180 + hours * 70 + accuracy * 40,
-    );
-    out.push({
-      id,
-      name,
-      avatarUrl: avatarUrlForSeed(id + name),
-      totalFocusScore: points,
-      streakDays: streak,
-      studyHours: hours,
-      focusAccuracy: accuracy,
-      composite,
-    });
-  }
-  return out;
 }
 
 function rowFromUser(
@@ -127,31 +69,15 @@ export type LeaderboardResult = {
   userRow: LeaderboardRow | null;
 };
 
-function assignRanks(sorted: LeaderboardRow[]): LeaderboardRow[] {
+function assignRanks(sorted: Omit<LeaderboardRow, "rank">[]): LeaderboardRow[] {
   return sorted.map((r, i) => ({ ...r, rank: i + 1 }));
 }
 
-export function buildMonthlyLeaderboard(
-  currentUser: Pick<UserRecord, "id" | "name">,
-  allSessions: StudySession[],
-  yearMonth: string = currentYearMonth(),
+function finalizeLeaderboard(
+  rowsWithoutRank: Omit<LeaderboardRow, "rank">[],
 ): LeaderboardResult {
-  const monthSessions = sessionsInMonth(allSessions, yearMonth);
-  const userRowFull = rowFromUser(currentUser, monthSessions, true);
-  const bots = syntheticRows(96, `m_${yearMonth}`).map((b) => ({
-    ...b,
-    isCurrentUser: false,
-    rank: 0,
-  }));
-  const merged: LeaderboardRow[] = [
-    ...bots,
-    {
-      ...userRowFull,
-      rank: 0,
-    },
-  ];
-  merged.sort((a, b) => b.composite - a.composite);
-  const ranked = assignRanks(merged);
+  const sorted = [...rowsWithoutRank].sort((a, b) => b.composite - a.composite);
+  const ranked = assignRanks(sorted);
   const userRow = ranked.find((r) => r.isCurrentUser) ?? null;
   return {
     rows: ranked,
@@ -160,28 +86,62 @@ export function buildMonthlyLeaderboard(
   };
 }
 
-export function buildAllTimeLeaderboard(
+/** Merge server rows with the current user if they have no sessions yet (not returned by RPC). */
+export function buildLeaderboardFromRpcRows(
   currentUser: Pick<UserRecord, "id" | "name">,
-  allSessions: StudySession[],
+  rpcRows: SupabaseLeaderboardRpcRow[],
 ): LeaderboardResult {
-  const userRowFull = rowFromUser(currentUser, allSessions, true);
-  const bots = syntheticRows(96, "alltime_v1").map((b) => ({
-    ...b,
-    isCurrentUser: false,
-    rank: 0,
+  const mapped: Omit<LeaderboardRow, "rank">[] = rpcRows.map((r) => ({
+    id: r.user_id,
+    name: (r.display_name || "Student").trim() || "Student",
+    avatarUrl: avatarUrlForSeed(r.user_id + (r.display_name || "")),
+    totalFocusScore: Number(r.total_focus_score),
+    streakDays: Number(r.streak_days),
+    studyHours: Number(r.study_hours),
+    focusAccuracy: Number(r.focus_accuracy),
+    isCurrentUser: r.user_id === currentUser.id,
+    composite: Number(r.composite_score),
   }));
-  const merged: LeaderboardRow[] = [
-    ...bots,
-    { ...userRowFull, rank: 0 },
-  ];
-  merged.sort((a, b) => b.composite - a.composite);
-  const ranked = assignRanks(merged);
-  const userRow = ranked.find((r) => r.isCurrentUser) ?? null;
-  return {
-    rows: ranked,
-    userRank: userRow?.rank ?? null,
-    userRow,
-  };
+
+  if (!mapped.some((r) => r.isCurrentUser)) {
+    mapped.push({
+      ...rowFromUser(currentUser, [], true),
+    });
+  }
+
+  return finalizeLeaderboard(mapped);
+}
+
+/** Pooled leaderboard from every user's sessions (localStorage demo mode). */
+export function buildLocalPooledLeaderboard(
+  currentUser: Pick<UserRecord, "id" | "name">,
+  mode: "monthly" | "all",
+  allSessions: StudySession[],
+  users: Pick<UserRecord, "id" | "name">[],
+  yearMonth: string = currentYearMonth(),
+): LeaderboardResult {
+  const nameById = new Map(users.map((u) => [u.id, u.name || "Student"]));
+  nameById.set(currentUser.id, currentUser.name || "Student");
+
+  const byUser = new Map<string, StudySession[]>();
+  for (const s of allSessions) {
+    const list = byUser.get(s.userId) ?? [];
+    list.push(s);
+    byUser.set(s.userId, list);
+  }
+  if (!byUser.has(currentUser.id)) byUser.set(currentUser.id, []);
+
+  const rows: Omit<LeaderboardRow, "rank">[] = [];
+  for (const [uid, sess] of byUser) {
+    const filtered =
+      mode === "monthly" ? sessionsInMonth(sess, yearMonth) : sess;
+    const name = nameById.get(uid) ?? "Student";
+    rows.push(
+      rowFromUser({ id: uid, name }, filtered, uid === currentUser.id),
+    );
+  }
+
+  return finalizeLeaderboard(rows);
 }
 
 /** Top N for display; always include current user row if outside top N */

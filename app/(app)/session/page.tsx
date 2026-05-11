@@ -393,7 +393,11 @@ export default function SessionPage() {
         focusThreshold,
       );
       saved = true;
-      celebration = await computeSessionCelebration(user, session);
+      try {
+        celebration = await computeSessionCelebration(user, session);
+      } catch {
+        celebration = null;
+      }
     }
 
     setRunning(false);

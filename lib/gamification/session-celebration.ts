@@ -1,7 +1,19 @@
-import { getSessionsForUser } from "@/lib/storage";
+import { isSupabaseEnabled } from "@/lib/supabase/config";
+import {
+  fetchLeaderboardAllTime,
+  fetchLeaderboardMonthly,
+} from "@/lib/storage-supabase";
+import {
+  getAllSessionsLocal,
+  getSessionsForUser,
+  getUsers,
+} from "@/lib/storage";
 import type { StudySession } from "@/lib/types";
 import { ACHIEVEMENTS, evaluateAchievements, type AchievementId } from "./achievements";
-import { buildAllTimeLeaderboard, buildMonthlyLeaderboard } from "./leaderboard";
+import {
+  buildLeaderboardFromRpcRows,
+  buildLocalPooledLeaderboard,
+} from "./leaderboard";
 import {
   getRankSnapshot,
   getUnlockedAchievements,
@@ -35,8 +47,27 @@ export async function computeSessionCelebration(
   const sessions = await getSessionsForUser(user.id);
   const monthKey = currentYearMonth();
 
-  const monthlyLb = buildMonthlyLeaderboard(user, sessions, monthKey);
-  const allLb = buildAllTimeLeaderboard(user, sessions);
+  let monthlyLb;
+  let allLb;
+  if (isSupabaseEnabled()) {
+    const [mRows, aRows] = await Promise.all([
+      fetchLeaderboardMonthly(monthKey),
+      fetchLeaderboardAllTime(),
+    ]);
+    monthlyLb = buildLeaderboardFromRpcRows(user, mRows);
+    allLb = buildLeaderboardFromRpcRows(user, aRows);
+  } else {
+    const allLocal = getAllSessionsLocal();
+    const users = getUsers();
+    monthlyLb = buildLocalPooledLeaderboard(
+      user,
+      "monthly",
+      allLocal,
+      users,
+      monthKey,
+    );
+    allLb = buildLocalPooledLeaderboard(user, "all", allLocal, users);
+  }
 
   const prev = getRankSnapshot(user.id);
   const monthlyRankDelta =

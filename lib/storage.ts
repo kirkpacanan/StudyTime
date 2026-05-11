@@ -34,6 +34,15 @@ function localGetSessions(userId: string): StudySession[] {
   return all.filter((s) => s.userId === userId);
 }
 
+/** All sessions in localStorage (for pooled leaderboard in mock mode). */
+export function getAllSessionsLocal(): StudySession[] {
+  if (typeof window === "undefined") return [];
+  return safeParse<StudySession[]>(
+    localStorage.getItem(KEYS.sessions),
+    [],
+  );
+}
+
 /** Study sessions for a user (Supabase when configured, else localStorage). */
 export async function getSessionsForUser(
   userId: string,

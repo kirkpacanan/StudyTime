@@ -6,13 +6,23 @@ import { Card } from "@/components/ui/card";
 import { useAuth } from "@/hooks/useAuth";
 import { ACHIEVEMENTS, type AchievementId } from "@/lib/gamification/achievements";
 import {
-  buildAllTimeLeaderboard,
-  buildMonthlyLeaderboard,
+  buildLeaderboardFromRpcRows,
+  buildLocalPooledLeaderboard,
+  currentYearMonth,
   sliceLeaderboardForDisplay,
+  type LeaderboardResult,
 } from "@/lib/gamification/leaderboard";
-import { currentYearMonth } from "@/lib/gamification/stats";
 import { getUnlockedAchievements } from "@/lib/gamification/rank-storage";
-import { getSessionsForUser } from "@/lib/storage";
+import {
+  fetchLeaderboardAllTime,
+  fetchLeaderboardMonthly,
+} from "@/lib/storage-supabase";
+import {
+  getAllSessionsLocal,
+  getSessionsForUser,
+  getUsers,
+} from "@/lib/storage";
+import { isSupabaseEnabled } from "@/lib/supabase/config";
 import type { StudySession } from "@/lib/types";
 import { motion } from "framer-motion";
 import {
@@ -40,6 +50,12 @@ export default function LeaderboardPage() {
   const { user, ready } = useAuth();
   const [tab, setTab] = useState<"monthly" | "all">("monthly");
   const [sessions, setSessions] = useState<StudySession[]>([]);
+  const [remoteLb, setRemoteLb] = useState<{
+    monthly: LeaderboardResult;
+    all: LeaderboardResult;
+  } | null>(null);
+  const [remoteLoading, setRemoteLoading] = useState(false);
+  const [remoteError, setRemoteError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) {
@@ -47,9 +63,50 @@ export default function LeaderboardPage() {
       return;
     }
     let cancelled = false;
-    void getSessionsForUser(user.id).then((s) => {
-      if (!cancelled) setSessions(s);
-    });
+    void getSessionsForUser(user.id)
+      .then((s) => {
+        if (!cancelled) setSessions(s);
+      })
+      .catch(() => {
+        if (!cancelled) setSessions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  useEffect(() => {
+    if (!user || !isSupabaseEnabled()) {
+      setRemoteLb(null);
+      setRemoteError(null);
+      setRemoteLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setRemoteLoading(true);
+    setRemoteError(null);
+    const ym = currentYearMonth();
+    void Promise.all([
+      fetchLeaderboardMonthly(ym),
+      fetchLeaderboardAllTime(),
+    ])
+      .then(([mRows, aRows]) => {
+        if (cancelled) return;
+        setRemoteLb({
+          monthly: buildLeaderboardFromRpcRows(user, mRows),
+          all: buildLeaderboardFromRpcRows(user, aRows),
+        });
+      })
+      .catch((e: unknown) => {
+        if (cancelled) return;
+        const msg =
+          e instanceof Error ? e.message : "Could not load leaderboard.";
+        setRemoteError(msg);
+        setRemoteLb(null);
+      })
+      .finally(() => {
+        if (!cancelled) setRemoteLoading(false);
+      });
     return () => {
       cancelled = true;
     };
@@ -57,13 +114,26 @@ export default function LeaderboardPage() {
 
   const monthlyResult = useMemo(() => {
     if (!user) return null;
-    return buildMonthlyLeaderboard(user, sessions, currentYearMonth());
-  }, [user, sessions]);
+    if (isSupabaseEnabled()) return remoteLb?.monthly ?? null;
+    return buildLocalPooledLeaderboard(
+      user,
+      "monthly",
+      getAllSessionsLocal(),
+      getUsers(),
+      currentYearMonth(),
+    );
+  }, [user, sessions, remoteLb]);
 
   const allResult = useMemo(() => {
     if (!user) return null;
-    return buildAllTimeLeaderboard(user, sessions);
-  }, [user, sessions]);
+    if (isSupabaseEnabled()) return remoteLb?.all ?? null;
+    return buildLocalPooledLeaderboard(
+      user,
+      "all",
+      getAllSessionsLocal(),
+      getUsers(),
+    );
+  }, [user, sessions, remoteLb]);
 
   const active = tab === "monthly" ? monthlyResult : allResult;
   const sliced = active
@@ -85,8 +155,8 @@ export default function LeaderboardPage() {
       <div className="mx-auto max-w-lg space-y-4 py-16 text-center">
         <p className="text-lg font-semibold text-text">Sign in to compete</p>
         <p className="text-sm text-muted">
-          Leaderboards use your saved sessions to rank you against the global
-          StudyTime community (demo pool + your stats).
+          Leaderboards rank you using saved study sessions from everyone on
+          StudyTime.
         </p>
         <Link
           href="/login"
@@ -94,6 +164,42 @@ export default function LeaderboardPage() {
         >
           Log in
         </Link>
+      </div>
+    );
+  }
+
+  if (isSupabaseEnabled() && remoteLoading) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center text-muted">
+        Loading leaderboard…
+      </div>
+    );
+  }
+
+  if (isSupabaseEnabled() && remoteError) {
+    return (
+      <div className="mx-auto max-w-lg space-y-4 py-16 text-center">
+        <p className="text-lg font-semibold text-text">Leaderboard unavailable</p>
+        <p className="text-sm text-muted">{remoteError}</p>
+        <p className="text-xs text-muted">
+          If this is a new project, run the latest Supabase migrations (including{" "}
+          <code className="rounded bg-slate-100 px-1 py-0.5 dark:bg-slate-800">
+            leaderboard_monthly
+          </code>{" "}
+          /{" "}
+          <code className="rounded bg-slate-100 px-1 py-0.5 dark:bg-slate-800">
+            leaderboard_all_time
+          </code>
+          ) and try again.
+        </p>
+      </div>
+    );
+  }
+
+  if (!active) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center text-muted">
+        Loading…
       </div>
     );
   }
@@ -154,12 +260,10 @@ export default function LeaderboardPage() {
           </p>
         </div>
         <div className="max-h-[min(70vh,720px)] overflow-y-auto p-4 md:p-6">
-          {active && (
-            <LeaderboardTable
-              topRows={sliced.topRows}
-              userOutsideTop={sliced.userOutsideTop}
-            />
-          )}
+          <LeaderboardTable
+            topRows={sliced.topRows}
+            userOutsideTop={sliced.userOutsideTop}
+          />
         </div>
       </Card>
 

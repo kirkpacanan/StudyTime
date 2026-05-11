@@ -1,3 +1,4 @@
+import type { SupabaseLeaderboardRpcRow } from "@/lib/gamification/leaderboard";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
 import type { StudySession, UserSettings } from "@/lib/types";
 import { DEFAULT_SETTINGS } from "@/lib/types";
@@ -87,4 +88,24 @@ export async function upsertUserSettings(
     { onConflict: "user_id" },
   );
   if (error) throw error;
+}
+
+export async function fetchLeaderboardMonthly(
+  yearMonth: string,
+): Promise<SupabaseLeaderboardRpcRow[]> {
+  const supabase = getSupabaseBrowser();
+  const { data, error } = await supabase.rpc("leaderboard_monthly", {
+    p_year_month: yearMonth,
+  });
+  if (error) throw error;
+  return (data ?? []) as SupabaseLeaderboardRpcRow[];
+}
+
+export async function fetchLeaderboardAllTime(): Promise<
+  SupabaseLeaderboardRpcRow[]
+> {
+  const supabase = getSupabaseBrowser();
+  const { data, error } = await supabase.rpc("leaderboard_all_time");
+  if (error) throw error;
+  return (data ?? []) as SupabaseLeaderboardRpcRow[];
 }
