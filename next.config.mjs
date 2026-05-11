@@ -1,5 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  experimental: {
+    optimizePackageImports: ["lucide-react", "framer-motion", "recharts"],
+  },
   transpilePackages: ["@vladmandic/face-api", "@mediapipe/tasks-vision"],
   // Next.js 16 uses Turbopack by default; we still have a custom `webpack` hook
   // below, so provide an explicit Turbopack config to silence the error:

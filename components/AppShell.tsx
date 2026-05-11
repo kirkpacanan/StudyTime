@@ -65,9 +65,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <AppBackdrop />
       <div className="relative z-0 flex min-h-screen">
         <Sidebar />
-        <div className="flex min-w-0 flex-1 flex-col md:ml-0">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col md:ml-0">
           <Topbar />
-          <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 md:px-8 md:py-8">
+          <main className="mx-auto min-h-0 w-full max-w-6xl flex-1 px-4 py-6 md:px-8 md:py-8">
             <PageTransition>{children}</PageTransition>
           </main>
         </div>

@@ -3,6 +3,7 @@
 import { StudyTimeWordmark } from "@/components/StudyTimeLogo";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { cn } from "@/lib/cn";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/useAuth";
 import { signUp } from "@/lib/auth";
@@ -42,10 +43,21 @@ export default function SignupPage() {
   const [password, setPassword] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  /** After sign-up: show success before navigating (blocks the logged-in auto-redirect). */
+  const [successKind, setSuccessKind] = useState<
+    null | "authed" | "sign_in_next"
+  >(null);
 
   useEffect(() => {
-    if (ready && user) router.replace("/dashboard");
-  }, [ready, user, router]);
+    if (!ready || !user || successKind !== null) return;
+    router.replace("/dashboard");
+  }, [ready, user, router, successKind]);
+
+  useEffect(() => {
+    if (successKind !== "authed") return;
+    const t = setTimeout(() => setSuccessKind(null), 1600);
+    return () => clearTimeout(t);
+  }, [successKind]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -57,8 +69,13 @@ export default function SignupPage() {
       setErr(res.error);
       return;
     }
-    refreshUser();
-    router.replace("/dashboard");
+    if (res.hasSession) {
+      void refreshUser();
+      setSuccessKind("authed");
+      return;
+    }
+    setSuccessKind("sign_in_next");
+    setPassword("");
   }
 
   if (!ready) {
@@ -93,11 +110,43 @@ export default function SignupPage() {
           variants={item}
           className="text-xl font-semibold tracking-tight text-text"
         >
-          Create your account
+          {successKind ? "You’re all set" : "Create your account"}
         </motion.h1>
         <motion.p variants={item} className="mt-1 text-sm text-muted">
-          Start monitoring focus and study performance.
+          {successKind
+            ? "Your StudyTime account is ready."
+            : "Start monitoring focus and study performance."}
         </motion.p>
+        {successKind ? (
+          <motion.div
+            variants={item}
+            role="status"
+            className="mt-6 space-y-4 rounded-xl border border-emerald-200/90 bg-emerald-50/95 p-5 text-center shadow-sm dark:border-emerald-500/35 dark:bg-emerald-950/50"
+          >
+            <p className="text-base font-semibold text-emerald-950 dark:text-emerald-100">
+              Account created successfully
+            </p>
+            {successKind === "authed" ? (
+              <p className="text-sm text-emerald-900/90 dark:text-emerald-100/85">
+                Taking you to your dashboard…
+              </p>
+            ) : (
+              <>
+                <p className="text-sm text-emerald-900/90 dark:text-emerald-100/85">
+                  Sign in with your email and password to continue.
+                </p>
+                <Link
+                  href="/login"
+                  className={cn(
+                    "inline-flex w-full items-center justify-center rounded-xl px-4 py-2.5 text-sm font-medium transition duration-200 ease-out active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ring-offset-bg glass-button-primary focus-visible:ring-primary",
+                  )}
+                >
+                  Sign in
+                </Link>
+              </>
+            )}
+          </motion.div>
+        ) : null}
         {!isSupabaseEnabled() ? (
           <motion.p
             variants={item}
@@ -106,7 +155,10 @@ export default function SignupPage() {
             {supabaseRequiredMessage()}
           </motion.p>
         ) : null}
-        <form className="mt-6 space-y-4" onSubmit={onSubmit}>
+        <form
+          className={`mt-6 space-y-4 ${successKind ? "hidden" : ""}`}
+          onSubmit={onSubmit}
+        >
           <motion.div variants={item}>
             <label className="text-xs font-medium text-muted" htmlFor="name">
               Name
@@ -171,18 +223,20 @@ export default function SignupPage() {
             </Button>
           </motion.div>
         </form>
-        <motion.p
-          variants={item}
-          className="mt-4 text-center text-sm text-muted"
-        >
-          Already have an account?{" "}
-          <Link
-            className="font-medium text-primary underline-offset-4 transition hover:underline"
-            href="/login"
+        {successKind ? null : (
+          <motion.p
+            variants={item}
+            className="mt-4 text-center text-sm text-muted"
           >
-            Sign in
-          </Link>
-        </motion.p>
+            Already have an account?{" "}
+            <Link
+              className="font-medium text-primary underline-offset-4 transition hover:underline"
+              href="/login"
+            >
+              Sign in
+            </Link>
+          </motion.p>
+        )}
       </Card>
     </motion.div>
   );

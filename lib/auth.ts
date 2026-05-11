@@ -8,6 +8,7 @@ import {
   saveUsers,
   setCurrentUserId,
 } from "./storage";
+import { clearLeaderboardCache } from "./gamification/leaderboard-cache";
 import { getSupabaseBrowser } from "./supabase/client";
 import { isSupabaseEnabled, supabaseRequiredMessage } from "./supabase/config";
 
@@ -48,7 +49,10 @@ export async function signUp(
   email: string,
   password: string,
   name: string,
-): Promise<{ ok: true; user: PublicUser } | { ok: false; error: string }> {
+): Promise<
+  | { ok: true; user: PublicUser; hasSession: boolean }
+  | { ok: false; error: string }
+> {
   const normalized = email.trim().toLowerCase();
   if (!normalized || !password) {
     return { ok: false, error: "Email and password are required." };
@@ -60,6 +64,8 @@ export async function signUp(
   }
 
   const supabase = getSupabaseBrowser();
+  // For immediate session + dashboard redirect: Supabase Dashboard → Authentication
+  // → Providers → Email → turn off "Confirm email".
   const { data, error } = await supabase.auth.signUp({
     email: normalized,
     password,
@@ -69,14 +75,11 @@ export async function signUp(
   });
   if (error) return { ok: false, error: error.message };
   if (!data.user) return { ok: false, error: "Sign up failed." };
-  if (!data.session) {
-    return {
-      ok: false,
-      error:
-        "Account created. Confirm your email if required, then sign in (check Supabase Auth settings).",
-    };
-  }
-  return { ok: true, user: mapSupabaseUser(data.user) };
+  return {
+    ok: true,
+    user: mapSupabaseUser(data.user),
+    hasSession: !!data.session,
+  };
 }
 
 export async function signIn(
@@ -108,6 +111,7 @@ export async function signIn(
 }
 
 export async function signOut(): Promise<void> {
+  clearLeaderboardCache();
   if (isSupabaseEnabled()) {
     const supabase = getSupabaseBrowser();
     await supabase.auth.signOut();

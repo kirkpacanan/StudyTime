@@ -1,33 +1,32 @@
 "use client";
 
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import { usePathname } from "next/navigation";
 
-const easeSmooth = [0.16, 1, 0.3, 1] as const;
+const ease = [0.16, 1, 0.3, 1] as const;
 
+/**
+ * Route enter animation without `AnimatePresence mode="wait"`, which kept the
+ * incoming page off-screen until the previous route finished exiting (blank main area).
+ */
 export function PageTransition({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const reduce = useReducedMotion();
 
   return (
-    <AnimatePresence mode="wait" initial={false}>
+    <div className="min-h-0 w-full">
       <motion.div
         key={pathname}
-        initial={
-          reduce ? { opacity: 0 } : { opacity: 0, y: 16, scale: 0.985 }
-        }
-        animate={reduce ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
-        exit={
-          reduce ? { opacity: 0 } : { opacity: 0, y: -12, scale: 0.99 }
-        }
+        initial={reduce ? false : { opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
         transition={{
-          duration: reduce ? 0.12 : 0.42,
-          ease: easeSmooth,
+          duration: reduce ? 0.01 : 0.22,
+          ease,
         }}
-        className="will-change-transform"
+        className="min-h-0 w-full"
       >
         {children}
       </motion.div>
-    </AnimatePresence>
+    </div>
   );
 }

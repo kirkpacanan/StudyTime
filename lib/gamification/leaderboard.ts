@@ -129,10 +129,15 @@ export function buildLocalPooledLeaderboard(
     list.push(s);
     byUser.set(s.userId, list);
   }
-  if (!byUser.has(currentUser.id)) byUser.set(currentUser.id, []);
+
+  const everyUserId = new Set<string>();
+  for (const u of users) everyUserId.add(u.id);
+  everyUserId.add(currentUser.id);
+  for (const s of allSessions) everyUserId.add(s.userId);
 
   const rows: Omit<LeaderboardRow, "rank">[] = [];
-  for (const [uid, sess] of byUser) {
+  for (const uid of everyUserId) {
+    const sess = byUser.get(uid) ?? [];
     const filtered =
       mode === "monthly" ? sessionsInMonth(sess, yearMonth) : sess;
     const name = nameById.get(uid) ?? "Student";

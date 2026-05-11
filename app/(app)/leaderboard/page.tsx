@@ -6,6 +6,10 @@ import { Card } from "@/components/ui/card";
 import { useAuth } from "@/hooks/useAuth";
 import { ACHIEVEMENTS, type AchievementId } from "@/lib/gamification/achievements";
 import {
+  peekLeaderboardCache,
+  setLeaderboardCache,
+} from "@/lib/gamification/leaderboard-cache";
+import {
   buildLeaderboardFromRpcRows,
   buildLocalPooledLeaderboard,
   currentYearMonth,
@@ -22,6 +26,7 @@ import {
   getSessionsForUser,
   getUsers,
 } from "@/lib/storage";
+import { getSupabaseBrowser } from "@/lib/supabase/client";
 import { isSupabaseEnabled } from "@/lib/supabase/config";
 import type { StudySession } from "@/lib/types";
 import { motion } from "framer-motion";
@@ -35,7 +40,8 @@ import {
   Zap,
 } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { usePathname } from "next/navigation";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 const ICONS = {
   target: Target,
@@ -47,15 +53,37 @@ const ICONS = {
 } as const;
 
 export default function LeaderboardPage() {
+  const pathname = usePathname();
   const { user, ready } = useAuth();
+  const loadGen = useRef(0);
+  const prevAuthUserId = useRef<string | null>(null);
+
   const [tab, setTab] = useState<"monthly" | "all">("monthly");
   const [sessions, setSessions] = useState<StudySession[]>([]);
   const [remoteLb, setRemoteLb] = useState<{
     monthly: LeaderboardResult;
     all: LeaderboardResult;
   } | null>(null);
-  const [remoteLoading, setRemoteLoading] = useState(false);
   const [remoteError, setRemoteError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!user) prevAuthUserId.current = null;
+  }, [user]);
+
+  useLayoutEffect(() => {
+    if (!pathname.startsWith("/leaderboard")) return;
+    if (!user?.id || !isSupabaseEnabled()) return;
+
+    const prev = prevAuthUserId.current;
+    if (prev !== null && prev !== user.id) {
+      setRemoteLb(null);
+      setRemoteError(null);
+    }
+    prevAuthUserId.current = user.id;
+
+    const cached = peekLeaderboardCache(user.id);
+    if (cached) setRemoteLb(cached);
+  }, [pathname, user?.id]);
 
   useEffect(() => {
     if (!user) {
@@ -76,41 +104,45 @@ export default function LeaderboardPage() {
   }, [user]);
 
   useEffect(() => {
+    if (!pathname.startsWith("/leaderboard")) return;
     if (!user || !isSupabaseEnabled()) {
       setRemoteLb(null);
       setRemoteError(null);
-      setRemoteLoading(false);
       return;
     }
+    const gen = ++loadGen.current;
     let cancelled = false;
-    setRemoteLoading(true);
     setRemoteError(null);
-    const ym = currentYearMonth();
-    void Promise.all([
-      fetchLeaderboardMonthly(ym),
-      fetchLeaderboardAllTime(),
-    ])
-      .then(([mRows, aRows]) => {
-        if (cancelled) return;
-        setRemoteLb({
+
+    void (async () => {
+      try {
+        const supabase = getSupabaseBrowser();
+        await supabase.auth.getSession();
+        if (cancelled || gen !== loadGen.current) return;
+        const ym = currentYearMonth();
+        const [mRows, aRows] = await Promise.all([
+          fetchLeaderboardMonthly(ym),
+          fetchLeaderboardAllTime(),
+        ]);
+        if (cancelled || gen !== loadGen.current) return;
+        const next = {
           monthly: buildLeaderboardFromRpcRows(user, mRows),
           all: buildLeaderboardFromRpcRows(user, aRows),
-        });
-      })
-      .catch((e: unknown) => {
-        if (cancelled) return;
+        };
+        setLeaderboardCache(user.id, next);
+        setRemoteLb(next);
+      } catch (e: unknown) {
+        if (cancelled || gen !== loadGen.current) return;
         const msg =
           e instanceof Error ? e.message : "Could not load leaderboard.";
         setRemoteError(msg);
-        setRemoteLb(null);
-      })
-      .finally(() => {
-        if (!cancelled) setRemoteLoading(false);
-      });
+      }
+    })();
+
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [user?.id, user?.name, pathname]);
 
   const monthlyResult = useMemo(() => {
     if (!user) return null;
@@ -142,10 +174,20 @@ export default function LeaderboardPage() {
 
   const achievements = user ? getUnlockedAchievements(user.id) : [];
 
+  const supabaseLeaderboardPending =
+    isSupabaseEnabled() &&
+    !!user &&
+    remoteLb === null &&
+    remoteError === null;
+
   if (!ready) {
     return (
-      <div className="flex min-h-[40vh] items-center justify-center text-muted">
-        Loading…
+      <div className="flex min-h-[40vh] flex-col items-center justify-center gap-2 text-[var(--text)]">
+        <div
+          className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent"
+          aria-hidden
+        />
+        <span className="text-sm font-medium">Loading…</span>
       </div>
     );
   }
@@ -168,10 +210,17 @@ export default function LeaderboardPage() {
     );
   }
 
-  if (isSupabaseEnabled() && remoteLoading) {
+  if (supabaseLeaderboardPending) {
     return (
-      <div className="flex min-h-[40vh] items-center justify-center text-muted">
-        Loading leaderboard…
+      <div className="flex min-h-[50vh] flex-col items-center justify-center gap-3 text-[var(--text)]">
+        <div
+          className="h-9 w-9 animate-spin rounded-full border-2 border-primary border-t-transparent"
+          aria-hidden
+        />
+        <p className="text-sm font-medium">Loading leaderboard…</p>
+        <p className="max-w-xs text-center text-xs text-[var(--muted)]">
+          Fetching rankings from your workspace.
+        </p>
       </div>
     );
   }
@@ -198,8 +247,12 @@ export default function LeaderboardPage() {
 
   if (!active) {
     return (
-      <div className="flex min-h-[40vh] items-center justify-center text-muted">
-        Loading…
+      <div className="flex min-h-[50vh] flex-col items-center justify-center gap-2 text-[var(--text)]">
+        <div
+          className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent"
+          aria-hidden
+        />
+        <span className="text-sm font-medium">Loading…</span>
       </div>
     );
   }
