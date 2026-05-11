@@ -70,6 +70,11 @@ security definer
 set search_path = public
 as $$
 begin
+  -- Trigger runs when a new row is inserted into `auth.users`.
+  -- At that moment `auth.uid()` may be NULL, and RLS policies for INSERT
+  -- can prevent the profile/settings rows from being created.
+  -- Disable row-level security for this internal bootstrap operation.
+  set row_security = off;
   insert into public.profiles (id, email, name)
   values (
     new.id,
@@ -85,4 +90,4 @@ $$;
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
-  for each row execute procedure public.handle_new_user();
+  for each row execute function public.handle_new_user();

@@ -38,6 +38,8 @@ The demo user includes sample sessions for the last 7 days so **Reports** is pop
 
 When these variables are set, the app uses **Supabase Auth** instead of local mock users, and reads/writes sessions and settings to Postgres. **Gamification** snapshots (leaderboard ranks, achievements) still use **localStorage** unless you extend the schema.
 
+**Sign up** is disabled until Supabase is configured (valid `https://…supabase.co` URL + anon key), so you do not accumulate local-only accounts by mistake. **Sign in** without Supabase still works for the seeded **demo** account in local-only mode.
+
 ## Face-API model weights (one-time)
 
 Download the following folders from the official `face-api.js` weights repository into **`public/models/`** so the app can load:

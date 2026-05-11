@@ -8,9 +8,8 @@ import {
   saveUsers,
   setCurrentUserId,
 } from "./storage";
-import { DEFAULT_SETTINGS } from "./types";
 import { getSupabaseBrowser } from "./supabase/client";
-import { isSupabaseEnabled } from "./supabase/config";
+import { isSupabaseEnabled, supabaseRequiredMessage } from "./supabase/config";
 
 export type PublicUser = Omit<UserRecord, "passwordHash" | "salt">;
 
@@ -55,46 +54,29 @@ export async function signUp(
     return { ok: false, error: "Email and password are required." };
   }
 
-  if (isSupabaseEnabled()) {
-    const supabase = getSupabaseBrowser();
-    const { data, error } = await supabase.auth.signUp({
-      email: normalized,
-      password,
-      options: {
-        data: { name: name.trim() || "Student" },
-      },
-    });
-    if (error) return { ok: false, error: error.message };
-    if (!data.user) return { ok: false, error: "Sign up failed." };
-    if (!data.session) {
-      return {
-        ok: false,
-        error:
-          "Account created. Confirm your email if required, then sign in (check Supabase Auth settings).",
-      };
-    }
-    return { ok: true, user: mapSupabaseUser(data.user) };
+  /** New accounts must be created in Supabase only — no local mock sign-up. */
+  if (!isSupabaseEnabled()) {
+    return { ok: false, error: supabaseRequiredMessage() };
   }
 
-  const users = getUsers();
-  if (users.some((u) => u.email === normalized)) {
-    return { ok: false, error: "An account with this email already exists." };
-  }
-  const salt = randomSalt();
-  const passwordHash = await digestHex(password + salt);
-  const user: UserRecord = {
-    id: crypto.randomUUID(),
+  const supabase = getSupabaseBrowser();
+  const { data, error } = await supabase.auth.signUp({
     email: normalized,
-    name: name.trim() || "Student",
-    passwordHash,
-    salt,
-    createdAt: new Date().toISOString(),
-  };
-  users.push(user);
-  saveUsers(users);
-  await saveSettings(user.id, { ...DEFAULT_SETTINGS });
-  setCurrentUserId(user.id);
-  return { ok: true, user: toPublic(user) };
+    password,
+    options: {
+      data: { name: name.trim() || "Student" },
+    },
+  });
+  if (error) return { ok: false, error: error.message };
+  if (!data.user) return { ok: false, error: "Sign up failed." };
+  if (!data.session) {
+    return {
+      ok: false,
+      error:
+        "Account created. Confirm your email if required, then sign in (check Supabase Auth settings).",
+    };
+  }
+  return { ok: true, user: mapSupabaseUser(data.user) };
 }
 
 export async function signIn(

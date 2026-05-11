@@ -6,6 +6,10 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/useAuth";
 import { signUp } from "@/lib/auth";
+import {
+  isSupabaseEnabled,
+  supabaseRequiredMessage,
+} from "@/lib/supabase/config";
 import { motion, useReducedMotion } from "framer-motion";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -94,6 +98,14 @@ export default function SignupPage() {
         <motion.p variants={item} className="mt-1 text-sm text-muted">
           Start monitoring focus and study performance.
         </motion.p>
+        {!isSupabaseEnabled() ? (
+          <motion.p
+            variants={item}
+            className="mt-4 rounded-lg border border-amber-200/80 bg-amber-50/90 p-3 text-xs text-amber-950 dark:border-amber-500/30 dark:bg-amber-950/40 dark:text-amber-100"
+          >
+            {supabaseRequiredMessage()}
+          </motion.p>
+        ) : null}
         <form className="mt-6 space-y-4" onSubmit={onSubmit}>
           <motion.div variants={item}>
             <label className="text-xs font-medium text-muted" htmlFor="name">
@@ -150,7 +162,11 @@ export default function SignupPage() {
             </motion.p>
           ) : null}
           <motion.div variants={item}>
-            <Button type="submit" className="w-full" disabled={loading}>
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={loading || !isSupabaseEnabled()}
+            >
               {loading ? "Creating…" : "Sign up"}
             </Button>
           </motion.div>
