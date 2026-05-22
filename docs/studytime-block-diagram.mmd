@@ -1,0 +1,32 @@
+%% Fig. 1 — StudyTime block diagram (Supabase for cloud DB)
+%% Render with Mermaid (VS Code, mermaid.live) or paste into your paper toolchain.
+
+flowchart TD
+    subgraph INPUT["INPUT LAYER"]
+        A["Webcam Video Stream<br/>(Built-in / USB Camera)"]
+    end
+
+    subgraph PROCESS["PROCESSING LAYER"]
+        B["Face Detection &<br/>Facial Landmark Extraction<br/>(MediaPipe / OpenCV)"]
+        C["Eye Aspect Ratio (EAR) &<br/>Head Pose Estimation"]
+        D["Attention State Classification<br/>(Focused / Distracted / Not Present)"]
+        E["Pomodoro Session Manager<br/>(Study & Break Intervals)"]
+        F["Focus Score & Productivity<br/>Analytics Computation"]
+        B --> C --> D --> E --> F
+    end
+
+    subgraph STORAGE["STORAGE LAYER"]
+        G["Cloud Database (Supabase / Postgres)<br/>Session Logs · Focus Metrics · Historical Data"]
+    end
+
+    subgraph OUTPUT["OUTPUT LAYER"]
+        H["Real-Time Focus<br/>Feedback Dashboard"]
+        I["Post-Session<br/>Performance Summary"]
+        J["Weekly Performance Reports<br/>& Trend Charts"]
+    end
+
+    A --> B
+    F --> G
+    G --> H
+    G --> I
+    G --> J

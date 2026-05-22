@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Part 1 — Understanding the Problem — StudyTime — Paqueca Group 12</title>
+  <style>
+    body { font-family: Georgia, "Times New Roman", serif; font-size: 11pt; line-height: 1.45; color: #111; max-width: 7in; margin: 0.75in auto; }
+    h1 { font-size: 16pt; text-align: center; margin-bottom: 0.25em; }
+    .subtitle { text-align: center; font-size: 12pt; margin-top: 0; }
+    .meta { text-align: center; margin: 1.25em 0 2em; font-size: 11pt; }
+    h2 { font-size: 13pt; margin-top: 1.4em; border-bottom: 1px solid #ccc; padding-bottom: 0.2em; }
+    h3 { font-size: 11.5pt; margin-top: 1em; }
+    table { border-collapse: collapse; width: 100%; font-size: 10pt; margin: 0.75em 0; }
+    th, td { border: 1px solid #333; padding: 0.35em 0.5em; vertical-align: top; }
+    th { background: #f0f0f0; text-align: left; }
+    ul { margin: 0.4em 0; padding-left: 1.25em; }
+    li { margin: 0.25em 0; }
+    hr { border: none; border-top: 1px solid #999; margin: 2em 0; }
+    .note { font-size: 10pt; font-style: italic; margin-top: 2em; }
+    .mermaid { text-align: center; margin: 1em 0; }
+    @media print { body { margin: 0.5in; } }
+  </style>
+</head>
+<body>
+
+<h1>Part 1: Understanding the Problem</h1>
+<p class="subtitle"><strong>Project:</strong> StudyTime</p>
+<p class="meta">
+  <strong>Course:</strong> [Course code / instructor — fill in]<br />
+  <strong>Due:</strong> May 15, 2026, 6:00 AM<br /><br />
+  <strong>Team name:</strong> Paqueca — Group 12<br /><br />
+  <strong>Members:</strong><br />
+  Nicholas Klein Y. Castillanes<br />
+  Kirk Roden C. Pacanan<br />
+  Gary Louise R. Querequencia
+</p>
+
+<h2>1. How we gathered information (and why these methods)</h2>
+<p>We grounded this report in <strong>three complementary sources</strong>, chosen to balance depth, honesty about our stage in the project, and fit with Part 1’s goal (understanding the problem before locking a final design).</p>
+<p><strong>A. Interpretive evaluation of the StudyTime prototype</strong><br />
+We walked through the current web application as critical users: authentication, dashboard, study session (camera and timers), reports, leaderboard, and settings. We noted what the interface communicates, what it assumes about the user’s environment, and where breakdowns or anxieties might appear (e.g., permissions, empty states, trust in scores). This method is appropriate because StudyTime is the existing system we are evolving; structured inspection surfaces concrete constraints (browser-only vision, lighting sensitivity) that abstract interviews alone might miss.</p>
+<p><strong>B. Internal document review</strong><br />
+We reviewed the project README and in-app copy to align our problem description with stated intent (focus monitoring, Pomodoro-style sessions, weekly reporting, optional cloud sync). This reduces the risk of inventing a problem statement that diverges from what the system actually tries to do.</p>
+<p><strong>C. Structured team reflection</strong><br />
+The three of us are tertiary-level students who regularly study online or in hybrid settings. We held a short structured discussion (guided prompts: When do you lose focus? What do you do when you feel unproductive? What would make you distrust a study app?). This is not a statistically representative sample; we treat it as hypothesis-generating context, not proof of prevalence in the whole student population.</p>
+<p><strong>Methods we did not use (yet) and why</strong></p>
+<ul>
+  <li><strong>Large-scale survey or formal usability tests with external participants:</strong> Part 1’s timeline and scope favor deep framing over recruiting and instrument design; we plan broader empirical work after Part 2 stabilizes the design questions.</li>
+  <li><strong>Longitudinal ethnography in dormitories or libraries:</strong> High burden on participants and privacy concerns when recording study behavior; webcam-based products already raise sensitivity, so we did not combine that with field shadowing in Part 1.</li>
+  <li><strong>Biometric lab equipment (eye trackers, etc.):</strong> Inaccessible for our context; StudyTime itself targets consumer webcams, so evaluation should eventually mirror real hardware, not lab-only conditions.</li>
+</ul>
+<p>Together, these methods give us traceable evidence (prototype + docs) plus lived-student perspective (team reflection), while being explicit about limits on generalizability.</p>
+
+<h2>2. Overview of the problem and why a system or interface is necessary</h2>
+<p><strong>Problem in brief:</strong> Many students today carry out a large share of self-directed study at home or in informal spaces, often alongside digital distractions (messaging, social feeds, streaming) and ambiguous feedback about whether they were actually studying. Traditional tools—timers, to-do lists, calendars—help with scheduling but give little insight into sustained attention during a block of work. The result is a recurring gap between felt effort (time spent at the desk) and focused effort (time on task with attention aligned to learning goals). That gap feeds stress, self-blame, and difficulty improving habits because the user lacks actionable, time-bound feedback.</p>
+<p><strong>Why an interactive system matters:</strong> Attention during solo study is partially observable through lightweight sensors many laptops already have (webcam). A purpose-built interface can (1) externalize focus and breaks so the user does not have to constantly self-monitor, (2) record sessions in a way that supports later reflection without relying on memory, and (3) connect individual sessions to longer arcs (weekly trends, streaks, peer-relative motivation where appropriate). Without such a system, the problem remains cognitively invisible: the user knows they are tired or behind on readings, but not when or how often attention drifts in ways that are fixable through environment or habit changes.</p>
+<p>StudyTime sits in this space as a study companion that makes focus and session structure visible and reviewable, while remaining bounded in its claims (supportive feedback, not high-stakes assessment).</p>
+
+<h2>3. Important characteristics of potential users</h2>
+<p>We expect <strong>primary users</strong> to be higher-education students (undergraduate and early graduate), including hybrid and fully online learners; learners who already use laptops for readings, problem sets, and video lectures; and students who are motivated enough to start a session but struggle with consistency, phone use, or long uninterrupted blocks.</p>
+<table>
+  <thead><tr><th>Characteristic</th><th>Why it matters</th></tr></thead>
+  <tbody>
+    <tr><td>Variable study spaces</td><td>Lighting, background, and camera angle affect vision-based signals.</td></tr>
+    <tr><td>Heterogeneous devices</td><td>Webcam quality, CPU, and browser behavior change latency and reliability.</td></tr>
+    <tr><td>Privacy sensitivity</td><td>Camera use raises trust, storage, and visibility (e.g., leaderboards).</td></tr>
+    <tr><td>Accessibility and inclusion</td><td>Not everyone can use webcam cues equally; user base exceeds ideal lab conditions.</td></tr>
+    <tr><td>Motivation profiles</td><td>Some want competition; others want private improvement only.</td></tr>
+    <tr><td>Academic workload volatility</td><td>Exam vs. light weeks change acceptable session length and nudge tolerance.</td></tr>
+  </tbody>
+</table>
+<p><strong>Secondary stakeholders:</strong> institutions (integrity and acceptable use), and housemates or family who share spaces and may appear on camera inadvertently.</p>
+
+<h2>4. Task analysis</h2>
+<h3>4.1 Important characteristics of the tasks users seek to perform</h3>
+<ul>
+  <li>Time-bounded deep work: start, stay in, and end study blocks with clear boundaries.</li>
+  <li>Environmental setup: permissions, camera, thresholds so alerts feel fair.</li>
+  <li>In-session regulation: recover from distraction; interpret live feedback without new distraction.</li>
+  <li>Post-session sensemaking: understand how the session went, not only that it ended.</li>
+  <li>Longer-horizon planning: connect sessions to weekly patterns and optional social comparison.</li>
+  <li>Account and preference management: login, theme, thresholds, data location.</li>
+</ul>
+<p>Tasks are interruptible and emotionally loaded, so system tasks are never purely mechanical.</p>
+
+<h3>4.2 Important characteristics of the task environment</h3>
+<ul>
+  <li><strong>Physical:</strong> desk + laptop; low light or backlight; shared rooms.</li>
+  <li><strong>Digital:</strong> multiple tabs, LMS, messaging, entertainment one click away.</li>
+  <li><strong>Social:</strong> solitude common; leaderboards add a social layer.</li>
+  <li><strong>Technical:</strong> browser, HTTPS/localhost for camera; variable network if cloud sync.</li>
+  <li><strong>Temporal:</strong> late-night or between-class fragments vs. long ideal blocks.</li>
+</ul>
+
+<h3>4.3 Structured task analysis (hierarchical overview)</h3>
+<p><strong>Goal: Complete a meaningful study period with awareness of focus</strong></p>
+<p><strong>1. Prepare to study</strong> — 1.1 Choose location and device → 1.2 Open StudyTime and authenticate → 1.3 Configure or confirm settings → 1.4 If using camera: grant permission, verify preview, adjust framing/lighting.</p>
+<p><strong>2. Run a study session</strong> — 2.1 Start session and focus phase → 2.2 (repeat) Monitor live feedback while working → 2.3 Respond to distractions → 2.4 Use breaks → 2.5 End session and confirm save.</p>
+<p><strong>3. Review and orient</strong> — 3.1 Dashboard or weekly report → 3.2 Interpret aggregates → 3.3 Optionally leaderboard → 3.4 Decide next action.</p>
+<p><strong>4. Maintain account and trust</strong> — 4.1 Understand data storage → 4.2 Sign out on shared machines.</p>
+<h3>Figure 1 — High-level user flow (StudyTime)</h3>
+<p><strong>Static image (plain background):</strong> <code>assets/part1-studytime-flowchart.png</code> at project root — use in Word or Google Docs.</p>
+<p style="text-align:center;"><img src="../assets/part1-studytime-flowchart.png" alt="Figure 1 StudyTime user flow flowchart" style="max-width:100%;height:auto;border:1px solid #ddd;" /></p>
+<p>Open this HTML in a <strong>browser</strong> for the live Mermaid version below. For edits, use <a href="https://mermaid.live">mermaid.live</a>.</p>
+<pre class="mermaid">
+flowchart TD
+  Start([Start]) --> Open[Open StudyTime]
+  Open --> Auth{Signed in?}
+  Auth -->|No| Login[Log in or sign up]
+  Login --> Auth
+  Auth -->|Yes| Dash[Dashboard]
+  Dash --> Prep[Review or adjust settings / camera if needed]
+  Prep --> Sess[Start study session]
+  Sess --> Focus[Focus phase: study task + live feedback]
+  Focus --> Gate{Continue, break, or finish?}
+  Gate -->|Keep focusing| Focus
+  Gate -->|Scheduled break| Brk[Break phase]
+  Brk --> Focus
+  Gate -->|End session| Save[End session and save record]
+  Save --> Review[Dashboard / weekly reports]
+  Review --> LB{View leaderboard?}
+  LB -->|Yes| Board[Leaderboard]
+  LB -->|No| Next[Decide next action]
+  Board --> Next
+  Next --> Again{Another session?}
+  Again -->|Yes| Sess
+  Again -->|No| Out[Sign out on shared device if needed]
+  Out --> End([End])
+</pre>
+
+<h2>5. Analysis of the existing system (StudyTime prototype)</h2>
+<p><strong>Strengths:</strong> Clear information architecture; saved sessions support reflection; optional Supabase path for multi-device use; calm visual language; documentation acknowledges limits of sensing.</p>
+<p><strong>Deficiencies and risks:</strong> Trust and comprehension of webcam analytics; cold start / empty states; performance on low-end hardware; leaderboard stress for some users; environmental variance producing inconsistent scores if not framed well.</p>
+
+<h2>6. Larger social and technical system</h2>
+<p>The product intersects individual habit formation, peer comparison, and institutional expectations. Browser permissions, client-side ML weights, and institutional networks all constrain deployment. Adjacent tools (timers, LMS, wellness apps) set comparative expectations; tighter coupling to attention signals raises the bar for explainability and ethics.</p>
+
+<h2>7. Initial usability criteria and measurement ideas</h2>
+<table>
+  <thead><tr><th>Criterion</th><th>Example measure</th></tr></thead>
+  <tbody>
+    <tr><td>Learnability</td><td>Time to first saved session; think-aloud success</td></tr>
+    <tr><td>Trust &amp; fairness</td><td>Likert on score vs. subjective focus</td></tr>
+    <tr><td>Low cognitive load</td><td>NASA-TLX or simplified workload post-session</td></tr>
+    <tr><td>Error recovery</td><td>Scenarios after permission/network failures</td></tr>
+    <tr><td>Efficiency of review</td><td>Time to answer “How was my week?”</td></tr>
+    <tr><td>Inclusivity &amp; control</td><td>Paths without camera; settings discoverability</td></tr>
+    <tr><td>Social feature safety</td><td>Opt-in rates; affect among low-ranked users</td></tr>
+  </tbody>
+</table>
+
+<h2>8. Implications for subsequent design work</h2>
+<ol>
+  <li><strong>Environment-first messaging</strong> — Teach what affects scores continuously; heterogeneous spaces demand it.</li>
+  <li><strong>Progressive disclosure of social comparison</strong> — Defaults and copy must reflect mixed motivation profiles.</li>
+  <li><strong>Session lifecycle cohesion</strong> — Onboarding and resilient states need parity with the happy path.</li>
+  <li><strong>Honest epistemic stance</strong> — Non-clinical framing should remain visible in the experience.</li>
+  <li><strong>Empirical follow-through</strong> — Add surveys or moderated sessions beyond the team in later phases.</li>
+</ol>
+
+<hr />
+<p class="note">To save as Word (.docx): open this file in Microsoft Word → File → Save As → Word Document (.docx). To use in Google Docs: File → Open → Upload, or paste from the companion .md file. For a static diagram in Word, export PNG/SVG from <a href="https://mermaid.live">mermaid.live</a>.</p>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+<script>
+  mermaid.initialize({ startOnLoad: true, theme: "neutral" });
+</script>
+</body>
+</html>
