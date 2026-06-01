@@ -1,4 +1,5 @@
 import { AuthProvider } from "@/contexts/auth-context";
+import { ProgressionProvider } from "@/contexts/progression-context";
 import { SessionLiveProvider } from "@/contexts/session-live-context";
 import { ThemeProvider } from "@/contexts/theme-context";
 import type { Metadata } from "next";
@@ -40,7 +41,9 @@ export default function RootLayout({
         </Script>
         <ThemeProvider>
           <AuthProvider>
-            <SessionLiveProvider>{children}</SessionLiveProvider>
+            <ProgressionProvider>
+              <SessionLiveProvider>{children}</SessionLiveProvider>
+            </ProgressionProvider>
           </AuthProvider>
         </ThemeProvider>
       </body>

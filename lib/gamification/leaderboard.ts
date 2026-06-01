@@ -22,6 +22,14 @@ export type LeaderboardRow = {
   isCurrentUser: boolean;
   /** Internal sort key */
   composite: number;
+  // --- Gamification (from user_xp / user_profiles) ---
+  level: number;
+  xp: number;
+  prestige: number;
+  avatarId: string | null;
+  frameId: string | null;
+  titleId: string | null;
+  pinnedBadges: string[];
 };
 
 export type SupabaseLeaderboardRpcRow = {
@@ -32,7 +40,25 @@ export type SupabaseLeaderboardRpcRow = {
   study_hours: number;
   focus_accuracy: number;
   composite_score: number;
+  // Appended by the gamification migration (nullable for legacy DBs).
+  level?: number | null;
+  xp?: number | null;
+  prestige?: number | null;
+  avatar_id?: string | null;
+  frame_id?: string | null;
+  title_id?: string | null;
+  pinned_badges?: string[] | null;
 };
+
+/** Current week's Monday as yyyy-mm-dd (UTC) — weekly board resets Monday. */
+export function currentWeekStart(now: Date = new Date()): string {
+  const d = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+  );
+  const dow = d.getUTCDay(); // 0 = Sun
+  d.setUTCDate(d.getUTCDate() - ((dow + 6) % 7));
+  return d.toISOString().slice(0, 10);
+}
 
 export function avatarUrlForSeed(seed: string): string {
   return `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(seed)}&backgroundColor=b6e3f4,c0aede,d1d4f9,ffd5dc,ffdfbf`;
@@ -60,6 +86,13 @@ function rowFromUser(
     focusAccuracy: accuracy,
     isCurrentUser,
     composite,
+    level: 1,
+    xp: 0,
+    prestige: 0,
+    avatarId: null,
+    frameId: null,
+    titleId: null,
+    pinnedBadges: [],
   };
 }
 
@@ -101,6 +134,13 @@ export function buildLeaderboardFromRpcRows(
     focusAccuracy: Number(r.focus_accuracy),
     isCurrentUser: r.user_id === currentUser.id,
     composite: Number(r.composite_score),
+    level: Number(r.level ?? 1),
+    xp: Number(r.xp ?? 0),
+    prestige: Number(r.prestige ?? 0),
+    avatarId: r.avatar_id ?? null,
+    frameId: r.frame_id ?? null,
+    titleId: r.title_id ?? null,
+    pinnedBadges: (r.pinned_badges ?? []) as string[],
   }));
 
   if (!mapped.some((r) => r.isCurrentUser)) {

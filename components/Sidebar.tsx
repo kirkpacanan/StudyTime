@@ -2,6 +2,7 @@
 
 import { cn } from "@/lib/cn";
 import { StudyTimeWordmark } from "@/components/StudyTimeLogo";
+import { ProfilePanel } from "@/components/gamification/ProfilePanel";
 import {
   BarChart3,
   BookOpen,
@@ -43,11 +44,11 @@ export function Sidebar() {
 
       <aside
         className={cn(
-          "glass-sidebar fixed inset-y-0 left-0 z-30 w-64 pt-16 transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] md:static md:translate-x-0 md:pt-0",
+          "glass-sidebar fixed inset-y-0 left-0 z-30 flex w-64 flex-col pt-16 transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] md:translate-x-0 md:pt-0",
           open ? "translate-x-0" : "-translate-x-full md:translate-x-0",
         )}
       >
-        <div className="flex h-16 items-center border-b border-[var(--cc-border)] px-4">
+        <div className="flex h-16 shrink-0 items-center border-b border-[var(--cc-border)] px-4">
           <StudyTimeWordmark
             logoSize={36}
             className="gap-2.5"
@@ -55,7 +56,7 @@ export function Sidebar() {
           />
         </div>
         <LayoutGroup>
-          <nav className="space-y-1 p-3" aria-label="Main">
+          <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto p-3" aria-label="Main">
             {links.map(({ href, label, icon: Icon }) => {
               const active =
                 pathname === href || pathname.startsWith(`${href}/`);
@@ -91,8 +92,8 @@ export function Sidebar() {
             })}
           </nav>
         </LayoutGroup>
-        <div className="absolute bottom-0 left-0 right-0 p-4 text-xs text-muted md:static">
-          Calm motion · smooth study flow.
+        <div className="shrink-0">
+          <ProfilePanel />
         </div>
       </aside>
       {open ? (

@@ -576,4 +576,170 @@ body {
   .dark .auth-glass .glass-button-primary:focus-visible {
     --tw-ring-color: rgba(147, 197, 253, 0.35);
   }
+
+  /* ── Animated cosmetic frames — each frame gets a distinct animation ── */
+
+  /* Animated Aura – continuous rainbow color cycle (ring glow layer) */
+  .cosmetic-frame-aura {
+    animation: cosmetic-frame-aura 5s linear infinite;
+  }
+  @keyframes cosmetic-frame-aura {
+    0% {
+      filter: drop-shadow(0 0 10px rgba(248, 113, 113, 0.9));
+    }
+    16% {
+      filter: drop-shadow(0 0 10px rgba(251, 191, 36, 0.9));
+    }
+    33% {
+      filter: drop-shadow(0 0 10px rgba(74, 222, 128, 0.9));
+    }
+    50% {
+      filter: drop-shadow(0 0 10px rgba(56, 189, 248, 0.9));
+    }
+    66% {
+      filter: drop-shadow(0 0 10px rgba(167, 139, 250, 0.9));
+    }
+    83% {
+      filter: drop-shadow(0 0 10px rgba(244, 114, 182, 0.9));
+    }
+    100% {
+      filter: drop-shadow(0 0 10px rgba(248, 113, 113, 0.9));
+    }
+  }
+
+  /* Prismatic Pulse – shifting multi-hue glow with alternating intensity */
+  .cosmetic-frame-prismatic {
+    animation: cosmetic-frame-prismatic 3.5s ease-in-out infinite;
+  }
+  @keyframes cosmetic-frame-prismatic {
+    0% {
+      filter: drop-shadow(0 0 3px rgba(103, 232, 249, 0.55));
+    }
+    25% {
+      filter: drop-shadow(0 0 18px rgba(167, 139, 250, 0.95));
+    }
+    50% {
+      filter: drop-shadow(0 0 3px rgba(244, 114, 182, 0.55));
+    }
+    75% {
+      filter: drop-shadow(0 0 18px rgba(103, 232, 249, 0.95));
+    }
+    100% {
+      filter: drop-shadow(0 0 3px rgba(103, 232, 249, 0.55));
+    }
+  }
+
+  /* GOAT Crown – intense gold shimmer with sparkling highlight */
+  .cosmetic-frame-goat {
+    animation: cosmetic-frame-goat 2.4s ease-in-out infinite;
+  }
+  @keyframes cosmetic-frame-goat {
+    0%,
+    100% {
+      filter: drop-shadow(0 0 4px rgba(250, 204, 21, 0.55));
+    }
+    50% {
+      filter: drop-shadow(0 0 22px rgba(250, 204, 21, 1))
+        drop-shadow(0 0 6px rgba(255, 249, 196, 0.8));
+    }
+  }
+
+  /* Prestige Halo – divine rose + white celestial pulse */
+  .cosmetic-frame-halo {
+    animation: cosmetic-frame-halo 3.2s ease-in-out infinite;
+  }
+  @keyframes cosmetic-frame-halo {
+    0%,
+    100% {
+      filter: drop-shadow(0 0 3px rgba(253, 164, 175, 0.5))
+        drop-shadow(0 0 1px rgba(255, 255, 255, 0.3));
+    }
+    50% {
+      filter: drop-shadow(0 0 16px rgba(244, 114, 182, 0.9))
+        drop-shadow(0 0 6px rgba(255, 255, 255, 0.65));
+    }
+  }
+
+  /* Crown overlay – gentle floating bob with gold glow */
+  .cosmetic-crown-bob {
+    animation: cosmetic-crown-bob 2.5s ease-in-out infinite;
+  }
+  @keyframes cosmetic-crown-bob {
+    0%,
+    100% {
+      transform: translateY(0px);
+      filter: drop-shadow(0 0 3px rgba(250, 204, 21, 0.7));
+    }
+    50% {
+      transform: translateY(-2px);
+      filter: drop-shadow(0 0 8px rgba(250, 204, 21, 1))
+        drop-shadow(0 0 2px rgba(255, 249, 196, 0.8));
+    }
+  }
+
+  /* Halo overlay – gentle floating bob with golden glow */
+  .cosmetic-halo-glow {
+    animation: cosmetic-halo-glow 3.2s ease-in-out infinite;
+  }
+  @keyframes cosmetic-halo-glow {
+    0%,
+    100% {
+      transform: translateY(0px);
+      filter: drop-shadow(0 0 4px rgba(253, 224, 71, 0.7));
+    }
+    50% {
+      transform: translateY(-2px);
+      filter: drop-shadow(0 0 10px rgba(253, 224, 71, 1))
+        drop-shadow(0 0 3px rgba(255, 255, 255, 0.8));
+    }
+  }
+
+  /* Particle / shard orbit – clockwise rotation around SVG centre (50 50) */
+  @keyframes orbit-cw {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  /* Shard self-spin while orbiting */
+  @keyframes shard-tumble {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  /* Legendary badge shimmer sweep. */
+  .badge-shimmer {
+    background-size: 200% 100%;
+    animation: badge-shimmer 2.6s linear infinite;
+  }
+
+  @keyframes badge-shimmer {
+    to {
+      background-position: -200% 0;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .cosmetic-frame-aura,
+    .cosmetic-frame-prismatic,
+    .cosmetic-frame-goat,
+    .cosmetic-frame-halo,
+    .cosmetic-crown-bob,
+    .cosmetic-halo-glow,
+    .badge-shimmer {
+      animation: none;
+    }
+    /* Stop particle / shard orbit SVG elements */
+    [class*="cosmetic-particle"],
+    [class*="cosmetic-shard"] {
+      animation: none !important;
+    }
+  }
 }

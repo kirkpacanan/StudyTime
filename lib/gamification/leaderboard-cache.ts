@@ -1,10 +1,16 @@
 import type { LeaderboardResult } from "./leaderboard";
 import { currentYearMonth } from "./stats";
 
+export type LeaderboardCacheData = {
+  monthly: LeaderboardResult;
+  all: LeaderboardResult;
+  weekly: LeaderboardResult;
+};
+
 type Entry = {
   userId: string;
   monthKey: string;
-  data: { monthly: LeaderboardResult; all: LeaderboardResult };
+  data: LeaderboardCacheData;
   ts: number;
 };
 
@@ -13,7 +19,7 @@ let entry: Entry | null = null;
 
 export function peekLeaderboardCache(
   userId: string,
-): { monthly: LeaderboardResult; all: LeaderboardResult } | null {
+): LeaderboardCacheData | null {
   if (!entry || entry.userId !== userId) return null;
   if (entry.monthKey !== currentYearMonth()) return null;
   if (Date.now() - entry.ts > TTL_MS) return null;
@@ -22,7 +28,7 @@ export function peekLeaderboardCache(
 
 export function setLeaderboardCache(
   userId: string,
-  data: { monthly: LeaderboardResult; all: LeaderboardResult },
+  data: LeaderboardCacheData,
 ) {
   entry = {
     userId,

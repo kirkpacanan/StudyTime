@@ -4,11 +4,15 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { playCelebrationChime } from "@/lib/gamification/sounds";
 import type { SessionCelebrationPayload } from "@/lib/gamification/session-celebration";
+import { RankChip } from "@/components/gamification/RankChip";
 import { renderShareCardPng } from "@/lib/share-card";
 import { motion } from "framer-motion";
 import {
+  ArrowUpRight,
+  CheckCircle2,
   Download,
   Flame,
+  Gift,
   Link2,
   Share2,
   Sparkles,
@@ -16,6 +20,7 @@ import {
   TrendingUp,
   Trophy,
   X,
+  Zap,
 } from "lucide-react";
 import Link from "next/link";
 import { type ReactNode, useEffect, useState } from "react";
@@ -205,6 +210,10 @@ export function SessionSummaryCelebration({
                   />
                 </div>
 
+                {celebration!.progression ? (
+                  <ProgressionPanel progression={celebration!.progression} />
+                ) : null}
+
                 {celebration!.newlyUnlocked.length > 0 ? (
                   <div className="relative mt-5 rounded-xl border border-cyan-500/25 bg-black/25 p-4">
                     <p className="text-xs font-semibold uppercase tracking-wider text-cyan-200/80">
@@ -320,6 +329,101 @@ export function SessionSummaryCelebration({
           </div>
         </div>
       </Card>
+    </div>
+  );
+}
+
+function ProgressionPanel({
+  progression: p,
+}: {
+  progression: NonNullable<SessionCelebrationPayload["progression"]>;
+}) {
+  return (
+    <div className="relative mt-5 space-y-3 rounded-xl border border-amber-400/25 bg-black/25 p-4">
+      <div className="flex items-center justify-between">
+        <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-amber-200/90">
+          <Zap className="h-4 w-4" />
+          +{p.xpEarned.toLocaleString()} XP
+        </p>
+        <RankChip rank={p.rank} level={p.newLevel} prestige={p.prestige} />
+      </div>
+
+      {/* XP breakdown */}
+      <ul className="space-y-0.5 text-[11px] text-slate-300">
+        {p.xpItems.map((item) => (
+          <li key={item.key} className="flex justify-between">
+            <span>{item.label}</span>
+            <span className="tabular-nums text-slate-200">
+              +{item.amount.toLocaleString()}
+            </span>
+          </li>
+        ))}
+      </ul>
+
+      {/* Level bar */}
+      <div className="space-y-1">
+        <div className="flex items-center justify-between text-[11px] text-slate-300">
+          <span>Level {p.progress.level}</span>
+          <span className="tabular-nums">
+            {p.progress.isMaxLevel
+              ? "MAX"
+              : `${p.progress.xpIntoLevel.toLocaleString()} / ${p.progress.xpForThisLevel.toLocaleString()}`}
+          </span>
+        </div>
+        <div className="h-2 overflow-hidden rounded-full bg-white/10">
+          <motion.div
+            className="h-full rounded-full bg-gradient-to-r from-amber-400 to-yellow-300"
+            initial={{ width: 0 }}
+            animate={{ width: `${p.progress.percent}%` }}
+            transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+          />
+        </div>
+      </div>
+
+      {p.leveledUp ? (
+        <motion.p
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="flex items-center gap-1.5 text-sm font-semibold text-amber-200"
+        >
+          <ArrowUpRight className="h-4 w-4" />
+          Level up! {p.oldLevel} → {p.newLevel}
+        </motion.p>
+      ) : null}
+
+      {p.rankUp ? (
+        <div className="rounded-lg border border-amber-400/40 bg-amber-500/15 px-3 py-2 text-sm font-semibold text-amber-100">
+          New rank unlocked: {p.rank.title}!
+        </div>
+      ) : null}
+
+      {p.completedQuests.length > 0 ? (
+        <div className="space-y-1">
+          {p.completedQuests.map((q) => (
+            <p
+              key={q.id}
+              className="flex items-center gap-1.5 text-xs text-emerald-300"
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              Quest complete: {q.title} (+{q.rewardXp} XP)
+            </p>
+          ))}
+        </div>
+      ) : null}
+
+      {p.grantedCosmetics.length > 0 ? (
+        <div className="space-y-1">
+          {p.grantedCosmetics.map((c) => (
+            <p
+              key={c.id}
+              className="flex items-center gap-1.5 text-xs text-fuchsia-300"
+            >
+              <Gift className="h-3.5 w-3.5" />
+              Cosmetic unlocked: {c.name} ({c.type})
+            </p>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

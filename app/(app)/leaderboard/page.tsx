@@ -1,25 +1,32 @@
 "use client";
 
 import { LeaderboardTable } from "@/components/gamification/LeaderboardTable";
+import { achievementIcon } from "@/components/gamification/icons";
+import { BuddyCard } from "@/components/gamification/BuddyCard";
+import { QuestsCard } from "@/components/gamification/QuestsCard";
+import { StreakCard } from "@/components/gamification/StreakCard";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { useAuth } from "@/hooks/useAuth";
+import { useProgression } from "@/contexts/progression-context";
 import { ACHIEVEMENTS, type AchievementId } from "@/lib/gamification/achievements";
 import {
   peekLeaderboardCache,
   setLeaderboardCache,
+  type LeaderboardCacheData,
 } from "@/lib/gamification/leaderboard-cache";
 import {
   buildLeaderboardFromRpcRows,
   buildLocalPooledLeaderboard,
+  currentWeekStart,
   currentYearMonth,
   sliceLeaderboardForDisplay,
   type LeaderboardResult,
 } from "@/lib/gamification/leaderboard";
-import { getUnlockedAchievements } from "@/lib/gamification/rank-storage";
 import {
   fetchLeaderboardAllTime,
   fetchLeaderboardMonthly,
+  fetchLeaderboardWeekly,
 } from "@/lib/storage-supabase";
 import {
   getAllSessionsLocal,
@@ -30,40 +37,23 @@ import { getSupabaseBrowser } from "@/lib/supabase/client";
 import { isSupabaseEnabled } from "@/lib/supabase/config";
 import type { StudySession } from "@/lib/types";
 import { motion } from "framer-motion";
-import {
-  Crown,
-  Flame,
-  Moon,
-  Sparkles,
-  Target,
-  Trophy,
-  Zap,
-} from "lucide-react";
+import { Sparkles } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
-const ICONS = {
-  target: Target,
-  flame: Flame,
-  trophy: Trophy,
-  moon: Moon,
-  zap: Zap,
-  crown: Crown,
-} as const;
+type Tab = "weekly" | "monthly" | "all";
 
 export default function LeaderboardPage() {
   const pathname = usePathname();
   const { user, ready } = useAuth();
+  const { snapshot } = useProgression();
   const loadGen = useRef(0);
   const prevAuthUserId = useRef<string | null>(null);
 
-  const [tab, setTab] = useState<"monthly" | "all">("monthly");
+  const [tab, setTab] = useState<Tab>("weekly");
   const [sessions, setSessions] = useState<StudySession[]>([]);
-  const [remoteLb, setRemoteLb] = useState<{
-    monthly: LeaderboardResult;
-    all: LeaderboardResult;
-  } | null>(null);
+  const [remoteLb, setRemoteLb] = useState<LeaderboardCacheData | null>(null);
   const [remoteError, setRemoteError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -120,14 +110,17 @@ export default function LeaderboardPage() {
         await supabase.auth.getSession();
         if (cancelled || gen !== loadGen.current) return;
         const ym = currentYearMonth();
-        const [mRows, aRows] = await Promise.all([
+        const ws = currentWeekStart();
+        const [mRows, aRows, wRows] = await Promise.all([
           fetchLeaderboardMonthly(ym),
           fetchLeaderboardAllTime(),
+          fetchLeaderboardWeekly(ws),
         ]);
         if (cancelled || gen !== loadGen.current) return;
-        const next = {
+        const next: LeaderboardCacheData = {
           monthly: buildLeaderboardFromRpcRows(user, mRows),
           all: buildLeaderboardFromRpcRows(user, aRows),
+          weekly: buildLeaderboardFromRpcRows(user, wRows),
         };
         setLeaderboardCache(user.id, next);
         setRemoteLb(next);
@@ -144,41 +137,68 @@ export default function LeaderboardPage() {
     };
   }, [user?.id, user?.name, pathname]);
 
-  const monthlyResult = useMemo(() => {
-    if (!user) return null;
-    if (isSupabaseEnabled()) return remoteLb?.monthly ?? null;
-    return buildLocalPooledLeaderboard(
+  const localResults = useMemo(() => {
+    if (!user || isSupabaseEnabled()) return null;
+    void sessions;
+    const all = getAllSessionsLocal();
+    const users = getUsers();
+    const monthly = buildLocalPooledLeaderboard(
       user,
       "monthly",
-      getAllSessionsLocal(),
-      getUsers(),
+      all,
+      users,
       currentYearMonth(),
     );
-  }, [user, sessions, remoteLb]);
+    const allTime = buildLocalPooledLeaderboard(user, "all", all, users);
+    return { monthly, all: allTime, weekly: monthly };
+  }, [user, sessions]);
 
-  const allResult = useMemo(() => {
-    if (!user) return null;
-    if (isSupabaseEnabled()) return remoteLb?.all ?? null;
-    return buildLocalPooledLeaderboard(
-      user,
-      "all",
-      getAllSessionsLocal(),
-      getUsers(),
-    );
-  }, [user, sessions, remoteLb]);
+  // Overlay the current user's live cosmetics + XP onto their leaderboard row.
+  const overlay = useMemo(() => {
+    return (result: LeaderboardResult | null): LeaderboardResult | null => {
+      if (!result || !snapshot) return result;
+      const patch = (r: (typeof result.rows)[number]) =>
+        r.isCurrentUser
+          ? {
+              ...r,
+              level: snapshot.level,
+              xp: snapshot.xp,
+              prestige: snapshot.prestige,
+              avatarId: snapshot.loadout.avatarId,
+              frameId: snapshot.loadout.frameId,
+              titleId: snapshot.loadout.titleId,
+              pinnedBadges: snapshot.loadout.pinnedBadges,
+            }
+          : r;
+      return {
+        ...result,
+        rows: result.rows.map(patch),
+        userRow: result.userRow ? patch(result.userRow) : null,
+      };
+    };
+  }, [snapshot]);
 
-  const active = tab === "monthly" ? monthlyResult : allResult;
+  const monthlyResult = isSupabaseEnabled()
+    ? (remoteLb?.monthly ?? null)
+    : (localResults?.monthly ?? null);
+  const allResult = isSupabaseEnabled()
+    ? (remoteLb?.all ?? null)
+    : (localResults?.all ?? null);
+  const weeklyResult = isSupabaseEnabled()
+    ? (remoteLb?.weekly ?? null)
+    : (localResults?.weekly ?? null);
+
+  const active = overlay(
+    tab === "monthly" ? monthlyResult : tab === "all" ? allResult : weeklyResult,
+  );
   const sliced = active
     ? sliceLeaderboardForDisplay(active, 25)
     : { topRows: [], userOutsideTop: null };
 
-  const achievements = user ? getUnlockedAchievements(user.id) : [];
+  const achievements = snapshot?.achievements ?? [];
 
   const supabaseLeaderboardPending =
-    isSupabaseEnabled() &&
-    !!user &&
-    remoteLb === null &&
-    remoteError === null;
+    isSupabaseEnabled() && !!user && remoteLb === null && remoteError === null;
 
   if (!ready) {
     return (
@@ -231,13 +251,10 @@ export default function LeaderboardPage() {
         <p className="text-lg font-semibold text-text">Leaderboard unavailable</p>
         <p className="text-sm text-muted">{remoteError}</p>
         <p className="text-xs text-muted">
-          If this is a new project, run the latest Supabase migrations (including{" "}
+          If this is a new project, run the latest Supabase migrations (including
+          the gamification migration with{" "}
           <code className="rounded bg-slate-100 px-1 py-0.5 dark:bg-slate-800">
-            leaderboard_monthly
-          </code>{" "}
-          /{" "}
-          <code className="rounded bg-slate-100 px-1 py-0.5 dark:bg-slate-800">
-            leaderboard_all_time
+            leaderboard_weekly
           </code>
           ) and try again.
         </p>
@@ -245,17 +262,11 @@ export default function LeaderboardPage() {
     );
   }
 
-  if (!active) {
-    return (
-      <div className="flex min-h-[50vh] flex-col items-center justify-center gap-2 text-[var(--text)]">
-        <div
-          className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent"
-          aria-hidden
-        />
-        <span className="text-sm font-medium">Loading…</span>
-      </div>
-    );
-  }
+  const tabLabel: Record<Tab, string> = {
+    weekly: "Weekly",
+    monthly: `Monthly · ${currentYearMonth()}`,
+    all: "All-time",
+  };
 
   return (
     <div className="mx-auto max-w-4xl space-y-8 pb-16 pt-4 md:pt-8">
@@ -271,41 +282,43 @@ export default function LeaderboardPage() {
           Global leaderboard
         </h1>
         <p className="max-w-xl text-sm text-muted">
-          Monthly boards reset every calendar month so everyone can climb. All-time
-          honors sustained excellence. Rank blends focus points, streaks, hours, and
-          accuracy.
+          Weekly boards reset every Monday, monthly boards every calendar month.
+          Climb ranks, earn XP, and show off your level, frame, and pinned badges.
         </p>
       </motion.div>
 
-      <div className="flex justify-center gap-2 md:justify-start">
-        <button
-          type="button"
-          onClick={() => setTab("monthly")}
-          className={`rounded-full px-5 py-2 text-sm font-semibold transition ${
-            tab === "monthly"
-              ? "bg-primary text-white shadow-lg shadow-primary/25"
-              : "bg-white/60 text-muted hover:bg-white dark:bg-white/10 dark:hover:bg-white/15"
-          }`}
-        >
-          Monthly · {currentYearMonth()}
-        </button>
-        <button
-          type="button"
-          onClick={() => setTab("all")}
-          className={`rounded-full px-5 py-2 text-sm font-semibold transition ${
-            tab === "all"
-              ? "bg-primary text-white shadow-lg shadow-primary/25"
-              : "bg-white/60 text-muted hover:bg-white dark:bg-white/10 dark:hover:bg-white/15"
-          }`}
-        >
-          All-time
-        </button>
+      {/* Streak + quests + buddy row */}
+      <div className="grid gap-4 md:grid-cols-3">
+        <StreakCard />
+        <QuestsCard />
+        <BuddyCard />
+      </div>
+
+      <div className="flex flex-wrap justify-center gap-2 md:justify-start">
+        {(["weekly", "monthly", "all"] as Tab[]).map((t) => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => setTab(t)}
+            className={`rounded-full px-5 py-2 text-sm font-semibold transition ${
+              tab === t
+                ? "bg-primary text-white shadow-lg shadow-primary/25"
+                : "bg-white/60 text-muted hover:bg-white dark:bg-white/10 dark:hover:bg-white/15"
+            }`}
+          >
+            {tabLabel[t]}
+          </button>
+        ))}
       </div>
 
       <Card className="overflow-hidden p-0">
         <div className="border-b border-slate-200/80 bg-gradient-to-r from-primary/[0.06] to-transparent px-6 py-4 dark:border-white/10 dark:from-cyan-500/[0.08]">
           <h2 className="text-base font-semibold text-text">
-            {tab === "monthly" ? "This month" : "Hall of focus"}
+            {tab === "weekly"
+              ? "This week"
+              : tab === "monthly"
+                ? "This month"
+                : "Hall of focus"}
           </h2>
           <p className="mt-1 text-xs text-muted">
             Your row is highlighted. Not in the top 25? We scroll you into view
@@ -313,10 +326,16 @@ export default function LeaderboardPage() {
           </p>
         </div>
         <div className="max-h-[min(70vh,720px)] overflow-y-auto p-4 md:p-6">
-          <LeaderboardTable
-            topRows={sliced.topRows}
-            userOutsideTop={sliced.userOutsideTop}
-          />
+          {active ? (
+            <LeaderboardTable
+              topRows={sliced.topRows}
+              userOutsideTop={sliced.userOutsideTop}
+            />
+          ) : (
+            <div className="flex min-h-[20vh] items-center justify-center text-sm text-muted">
+              Loading…
+            </div>
+          )}
         </div>
       </Card>
 
@@ -332,7 +351,7 @@ export default function LeaderboardPage() {
         <div className="grid gap-3 sm:grid-cols-2">
           {(Object.keys(ACHIEVEMENTS) as AchievementId[]).map((id) => {
             const def = ACHIEVEMENTS[id];
-            const Icon = ICONS[def.icon as keyof typeof ICONS];
+            const Icon = achievementIcon(def.icon);
             const unlocked = achievements.includes(id);
             return (
               <div
@@ -346,7 +365,9 @@ export default function LeaderboardPage() {
                 <div className="flex items-start gap-3">
                   <div
                     className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${
-                      unlocked ? "bg-amber-500/20 text-amber-700 dark:text-amber-300" : "bg-slate-200/80 dark:bg-slate-800"
+                      unlocked
+                        ? "bg-amber-500/20 text-amber-700 dark:text-amber-300"
+                        : "bg-slate-200/80 dark:bg-slate-800"
                     }`}
                   >
                     <Icon className="h-5 w-5" />
@@ -354,15 +375,20 @@ export default function LeaderboardPage() {
                   <div>
                     <p className="font-semibold text-text">{def.title}</p>
                     <p className="mt-0.5 text-xs text-muted">{def.description}</p>
-                    {unlocked ? (
-                      <span className="mt-2 inline-block text-[10px] font-bold uppercase tracking-wide text-amber-600 dark:text-amber-400">
-                        Unlocked
+                    <div className="mt-2 flex items-center gap-2">
+                      <span className="text-[10px] font-medium capitalize text-muted">
+                        {def.category} · {def.rarity}
                       </span>
-                    ) : (
-                      <span className="mt-2 inline-block text-[10px] font-medium uppercase tracking-wide text-muted">
-                        Locked
-                      </span>
-                    )}
+                      {unlocked ? (
+                        <span className="text-[10px] font-bold uppercase tracking-wide text-amber-600 dark:text-amber-400">
+                          Unlocked
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-medium uppercase tracking-wide text-muted">
+                          +{def.rewardXp} XP
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>

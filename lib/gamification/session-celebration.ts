@@ -9,19 +9,17 @@ import {
   getUsers,
 } from "@/lib/storage";
 import type { StudySession } from "@/lib/types";
-import { ACHIEVEMENTS, evaluateAchievements, type AchievementId } from "./achievements";
+import type { AchievementId } from "./achievements";
 import {
   buildLeaderboardFromRpcRows,
   buildLocalPooledLeaderboard,
 } from "./leaderboard";
+import { getRankSnapshot, saveRankSnapshot } from "./rank-storage";
 import {
-  getRankSnapshot,
-  getUnlockedAchievements,
-  saveRankSnapshot,
-  unionAchievements,
-} from "./rank-storage";
+  applySessionProgression,
+  type ProgressionResult,
+} from "./progression-service";
 import {
-  computeStudyStreak,
   currentYearMonth,
   sessionFocusPoints,
   totalFocusPoints,
@@ -36,6 +34,8 @@ export type SessionCelebrationPayload = {
   allTimeRankDelta: number | null;
   streakDays: number;
   newlyUnlocked: { id: AchievementId; title: string; description: string }[];
+  /** Full XP / level / rank / quest / cosmetic progression for this session. */
+  progression: ProgressionResult | null;
 };
 
 export async function computeSessionCelebration(
@@ -78,9 +78,7 @@ export async function computeSessionCelebration(
       ? prev.monthlyRank - monthlyLb.userRank
       : null;
   const allTimeRankDelta =
-    prev &&
-    prev.allTimeRank != null &&
-    allLb.userRank != null
+    prev && prev.allTimeRank != null && allLb.userRank != null
       ? prev.allTimeRank - allLb.userRank
       : null;
 
@@ -90,21 +88,19 @@ export async function computeSessionCelebration(
     allTimeRank: allLb.userRank,
   });
 
-  const beforeIds = new Set(getUnlockedAchievements(user.id));
-  const evaluated = evaluateAchievements(sessions, {
-    monthlyRank: monthlyLb.userRank,
-    allTimeRank: allLb.userRank,
-    currentMonthKey: monthKey,
-  });
-  unionAchievements(user.id, evaluated);
-
-  const newlyUnlocked = evaluated
-    .filter((id) => !beforeIds.has(id))
-    .map((id) => ({
-      id,
-      title: ACHIEVEMENTS[id].title,
-      description: ACHIEVEMENTS[id].description,
-    }));
+  // Run the full progression engine (XP, level/rank-ups, cosmetics, quests,
+  // streak, achievements). This is the authoritative XP update on session end.
+  let progression: ProgressionResult | null = null;
+  try {
+    progression = await applySessionProgression(user, latestSession, {
+      allSessions: sessions,
+      monthlyRank: monthlyLb.userRank,
+      allTimeRank: allLb.userRank,
+      currentMonthKey: monthKey,
+    });
+  } catch {
+    progression = null;
+  }
 
   const pointsEarned = sessionFocusPoints(latestSession);
 
@@ -115,7 +111,8 @@ export async function computeSessionCelebration(
     allTimeRank: allLb.userRank,
     monthlyRankDelta,
     allTimeRankDelta,
-    streakDays: computeStudyStreak(sessions),
-    newlyUnlocked,
+    streakDays: progression?.streak.current ?? 0,
+    newlyUnlocked: progression?.newAchievements ?? [],
+    progression,
   };
 }

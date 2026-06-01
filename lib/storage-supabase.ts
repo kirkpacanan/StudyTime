@@ -109,3 +109,14 @@ export async function fetchLeaderboardAllTime(): Promise<
   if (error) throw error;
   return (data ?? []) as SupabaseLeaderboardRpcRow[];
 }
+
+export async function fetchLeaderboardWeekly(
+  weekStart: string,
+): Promise<SupabaseLeaderboardRpcRow[]> {
+  const supabase = getSupabaseBrowser();
+  const { data, error } = await supabase.rpc("leaderboard_weekly", {
+    p_week_start: weekStart,
+  });
+  if (error) throw error;
+  return (data ?? []) as SupabaseLeaderboardRpcRow[];
+}

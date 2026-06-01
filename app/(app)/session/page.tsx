@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { useSessionLive } from "@/contexts/session-live-context";
+import { useProgression } from "@/contexts/progression-context";
 import { useAuth } from "@/hooks/useAuth";
 import { SessionSummaryCelebration } from "@/components/gamification/SessionSummaryCelebration";
 import {
@@ -243,6 +244,7 @@ type SessionEndSummary = {
 export default function SessionPage() {
   const { user } = useAuth();
   const { setLive, resetLive } = useSessionLive();
+  const { refresh: refreshProgression } = useProgression();
   const [settings, setSettings] = useState<UserSettings | null>(null);
   const [running, setRunning] = useState(false);
   const [paused, setPaused] = useState(false);
@@ -429,7 +431,10 @@ export default function SessionPage() {
       distractionEvents: stats.distractionEvents,
       celebration,
     });
-  }, [focusThreshold, resetLive, user]);
+
+    // Refresh sidebar profile panel + leaderboard with new XP/level/cosmetics.
+    if (saved) void refreshProgression();
+  }, [focusThreshold, resetLive, user, refreshProgression]);
 
   useEffect(() => {
     if (!running || paused) return;

@@ -13,6 +13,30 @@ import { DEFAULT_SETTINGS } from "./types";
 const DEMO_EMAIL = "demo@studytime.app";
 const DEMO_PASSWORD = "demo1234";
 
+// Max-level XP for Study GOAT (level 50).
+// Computed from: sum_{l=1}^{49} (300 + (l-1)*225) = 279 300.
+// Keep in sync with ranks.ts xpForLevel / totalXpToReachLevel formulas.
+const DEMO_MAX_XP = 279_300;
+const DEMO_MAX_LEVEL = 50;
+
+// All achievement IDs — mirrors AchievementId union in achievements.ts.
+// Keep in sync when new achievements are added.
+const ALL_ACHIEVEMENT_IDS = [
+  "focus_master",
+  "streak_7",
+  "top_100_global",
+  "night_owl",
+  "deep_focus_champion",
+  "monthly_top_performer",
+  "iron_focus",
+  "streak_14",
+  "streak_30",
+  "speed_demon",
+  "early_bird",
+  "buddy_bond",
+  "weekend_warrior",
+] as const;
+
 function randomBetween(min: number, max: number) {
   return min + Math.random() * (max - min);
 }
@@ -79,8 +103,8 @@ export async function seedDemoData(): Promise<void> {
   if (typeof window === "undefined") return;
   const { isSupabaseEnabled } = await import("./supabase/config");
   if (isSupabaseEnabled()) return;
-  if (isBootstrapped()) return;
 
+  // ── 1. Ensure demo user exists ─────────────────────────────────────────────
   const users = getUsers();
   let demoUser: UserRecord | undefined = users.find(
     (u) => u.email === DEMO_EMAIL,
@@ -100,6 +124,40 @@ export async function seedDemoData(): Promise<void> {
     users.push(demoUser);
     saveUsers(users);
   }
+
+  // ── 2. Always keep demo account at max level, prestige 0 ─────────────────
+  // The demo showcases the full rank progression (Study GOAT, Lv 50) with
+  // no prestige so the prestige feature can be demonstrated fresh each time.
+  // Also fires when the user tests prestige (level drops to 1 or prestige > 0),
+  // so the account is always clean on the next startup.
+  const xpKey = `studytime_xp_${demoUser.id}`;
+  const stored = localStorage.getItem(xpKey);
+  const storedState = stored
+    ? (JSON.parse(stored) as { level?: number; prestige?: number })
+    : null;
+  const currentLevel = storedState?.level ?? 1;
+  const currentPrestige = storedState?.prestige ?? 0;
+  if (currentLevel < DEMO_MAX_LEVEL || currentPrestige !== 0) {
+    localStorage.setItem(
+      xpKey,
+      JSON.stringify({ xp: DEMO_MAX_XP, level: DEMO_MAX_LEVEL, prestige: 0 }),
+    );
+  }
+
+  // ── 3. Unlock all achievements ─────────────────────────────────────────────
+  const achievementsKey = `studytime_achievements_${demoUser.id}`;
+  const storedAchievements: string[] = JSON.parse(
+    localStorage.getItem(achievementsKey) ?? "[]",
+  );
+  if (storedAchievements.length < ALL_ACHIEVEMENT_IDS.length) {
+    localStorage.setItem(
+      achievementsKey,
+      JSON.stringify([...ALL_ACHIEVEMENT_IDS]),
+    );
+  }
+
+  // ── 4. Seed study sessions once ────────────────────────────────────────────
+  if (isBootstrapped()) return;
 
   await saveSettings(demoUser.id, { ...DEFAULT_SETTINGS });
 
