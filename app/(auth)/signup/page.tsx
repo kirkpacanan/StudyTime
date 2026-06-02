@@ -7,10 +7,8 @@ import { cn } from "@/lib/cn";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/useAuth";
 import { signUp } from "@/lib/auth";
-import {
-  isSupabaseEnabled,
-  supabaseRequiredMessage,
-} from "@/lib/supabase/config";
+import { supabaseRequiredMessage } from "@/lib/supabase/config";
+import { useSupabaseReady } from "@/hooks/useSupabaseReady";
 import { motion, useReducedMotion } from "framer-motion";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -36,6 +34,10 @@ const item = {
 
 export default function SignupPage() {
   const { user, ready, refreshUser } = useAuth();
+  const {
+    ready: supabaseConfigReady,
+    enabled: supabaseEnabled,
+  } = useSupabaseReady();
   const router = useRouter();
   const reduce = useReducedMotion();
   const [name, setName] = useState("");
@@ -78,7 +80,7 @@ export default function SignupPage() {
     setPassword("");
   }
 
-  if (!ready) {
+  if (!ready || !supabaseConfigReady) {
     return (
       <motion.div
         initial={reduce ? false : { opacity: 0, scale: 0.98 }}
@@ -147,7 +149,7 @@ export default function SignupPage() {
             )}
           </motion.div>
         ) : null}
-        {!isSupabaseEnabled() ? (
+        {!supabaseEnabled ? (
           <motion.p
             variants={item}
             className="mt-4 rounded-lg border border-amber-200/80 bg-amber-50/90 p-3 text-xs text-amber-950 dark:border-amber-500/30 dark:bg-amber-950/40 dark:text-amber-100"
@@ -217,7 +219,7 @@ export default function SignupPage() {
             <Button
               type="submit"
               className="w-full"
-              disabled={loading || !isSupabaseEnabled()}
+              disabled={loading || !supabaseEnabled}
             >
               {loading ? "Creating…" : "Sign up"}
             </Button>

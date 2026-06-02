@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   assertBrowserSafeSupabaseKey,
   getSupabasePublicKey,
+  getSupabaseUrl,
   isSupabaseEnabled,
 } from "./config";
 
@@ -24,12 +25,11 @@ export function getSupabaseBrowser(): SupabaseClient {
     );
   }
   if (browserClient) return browserClient;
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const url = getSupabaseUrl()!;
   const key = getSupabasePublicKey()!;
 
   assertBrowserSafeSupabaseKey(key);
 
-  // Extra safety so the runtime error points directly at the env value.
   try {
     const u = new URL(url);
     if (u.protocol !== "http:" && u.protocol !== "https:") {
@@ -41,8 +41,6 @@ export function getSupabaseBrowser(): SupabaseClient {
     );
   }
 
-  // createBrowserClient persists the session in cookies (not just localStorage)
-  // so Next.js middleware / server components can read it for route protection.
   browserClient = createBrowserClient(url, key);
   return browserClient;
 }

@@ -1,3 +1,7 @@
+import {
+  resolveSupabasePublicKey,
+  resolveSupabaseUrl,
+} from "@/lib/supabase/resolve-env";
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
@@ -7,10 +11,8 @@ import { NextResponse, type NextRequest } from "next/server";
  * AppShell handles redirects, so middleware stays out of the way.
  */
 export async function middleware(request: NextRequest) {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key =
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+  const url = resolveSupabaseUrl();
+  const key = resolveSupabasePublicKey();
 
   // Not configured (demo mode) or secret key misuse: skip server enforcement.
   if (!url || !key || key.startsWith("sb_secret_")) {

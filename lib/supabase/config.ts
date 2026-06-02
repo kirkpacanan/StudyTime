@@ -1,12 +1,26 @@
+import {
+  isResolvableSupabaseConfig,
+  isValidSupabaseUrl,
+  resolveSupabasePublicKey,
+  resolveSupabaseUrl,
+} from "./resolve-env";
+import { getSupabaseRuntimeConfig } from "./runtime-config";
+
 /**
  * Public (browser-safe) Supabase API key.
  * Use **anon** JWT (`eyJ…`) or **publishable** key (`sb_publishable_…`) from
  * Project Settings → API. Never use `sb_secret_…` or service_role here.
  */
 export function getSupabasePublicKey(): string | undefined {
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
-  const publishable = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim();
-  return anon || publishable || undefined;
+  const runtime = getSupabaseRuntimeConfig();
+  if (runtime?.key) return runtime.key;
+  return resolveSupabasePublicKey();
+}
+
+export function getSupabaseUrl(): string | undefined {
+  const runtime = getSupabaseRuntimeConfig();
+  if (runtime?.url) return runtime.url;
+  return resolveSupabaseUrl();
 }
 
 /** Reject keys that must only run on the server (Vercel exposes `NEXT_PUBLIC_*` to the browser). */
@@ -28,16 +42,11 @@ export function assertBrowserSafeSupabaseKey(key: string): void {
 
 /** True when Supabase URL + a browser-safe public key are set. */
 export function isSupabaseEnabled(): boolean {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const url = getSupabaseUrl();
   const key = getSupabasePublicKey();
   if (!url || !key) return false;
   if (key.startsWith("sb_secret_")) return false;
-  try {
-    const u = new URL(url);
-    return u.protocol === "http:" || u.protocol === "https:";
-  } catch {
-    return false;
-  }
+  return isValidSupabaseUrl(url);
 }
 
 /** Shown when sign-up is blocked because cloud auth is required. */
@@ -52,3 +61,6 @@ export function supabaseRequiredMessage(): string {
     "Redeploy after changing env vars.",
   ].join(" ");
 }
+
+/** Server-side check (includes non-NEXT_PUBLIC env names). */
+export { isResolvableSupabaseConfig };

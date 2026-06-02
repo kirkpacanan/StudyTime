@@ -1,3 +1,4 @@
+import { SupabaseEnvBootstrap } from "@/components/SupabaseEnvBootstrap";
 import { AuthProvider } from "@/contexts/auth-context";
 import { PresenceProvider } from "@/contexts/presence-context";
 import { ProgressionProvider } from "@/contexts/progression-context";
@@ -40,6 +41,7 @@ export default function RootLayout({
         <Script id="studytime-theme-init" strategy="beforeInteractive">
           {themeInit}
         </Script>
+        <SupabaseEnvBootstrap />
         <ThemeProvider>
           <AuthProvider>
             <ProgressionProvider>
