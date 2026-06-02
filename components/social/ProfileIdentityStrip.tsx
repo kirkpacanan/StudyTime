@@ -3,7 +3,7 @@
 import { getMyProfile, updateProfile } from "@/lib/social/profile-service";
 import { isSupabaseEnabled } from "@/lib/supabase/config";
 import type { MyProfile } from "@/lib/social/types";
-import { AtSign, Check, Copy, Link2, Pencil, X } from "lucide-react";
+import { AtSign, Check, Copy, Link2, Pencil, Users, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
 /**
@@ -60,7 +60,14 @@ export function ProfileIdentityStrip() {
   };
 
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+    <div className="mt-2 space-y-2">
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span className="inline-flex items-center gap-1 rounded-lg border border-white/45 bg-white/30 px-2 py-1 font-medium text-muted dark:border-white/10 dark:bg-white/[0.05]">
+          <Users className="h-3 w-3" />
+          {profile.friendCount} {profile.friendCount === 1 ? "friend" : "friends"}
+        </span>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 text-xs">
       {editing ? (
         <div className="flex w-full flex-col gap-2 sm:max-w-xs">
           <div className="flex items-center gap-1.5">
@@ -135,6 +142,7 @@ export function ProfileIdentityStrip() {
           </button>
         </>
       )}
+      </div>
     </div>
   );
 }

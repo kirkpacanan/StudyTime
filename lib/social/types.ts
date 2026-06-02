@@ -29,6 +29,7 @@ export type MyProfile = {
   publicUid: string;
   displayName: string;
   memberSince: string;
+  friendCount: number;
   privacy: PrivacySettings;
 };
 
@@ -37,7 +38,20 @@ export type FriendRelationship =
   | "friend"
   | "pending_in"
   | "pending_out"
+  | "blocked"
+  | "blocked_by"
   | "none";
+
+export type StudyBuddyCard = {
+  buddyId: string;
+  username: string | null;
+  publicUid: string;
+  displayName: string;
+  avatarId: string | null;
+  frameId: string | null;
+  level: number;
+  pairedSince: string;
+};
 
 export type PublicProfileLoadout = {
   avatarId: string;
@@ -62,6 +76,8 @@ export type PublicProfileCard = {
   prestige: number;
   xp: number;
   relationship: FriendRelationship;
+  friendCount: number;
+  studyBuddy: StudyBuddyCard | null;
   visible: boolean;
   stats: {
     currentStreak: number;
@@ -79,6 +95,7 @@ export type UserSearchResult = {
   avatarId: string | null;
   frameId: string | null;
   level: number;
+  relationship: FriendRelationship;
 };
 
 export type PresenceStatus = "offline" | "online" | "studying";

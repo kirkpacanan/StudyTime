@@ -4,6 +4,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ActivityCard } from "@/components/social/ActivityCard";
 import { getActivityFeed } from "@/lib/social/feed-service";
+import { getSupabaseBrowser } from "@/lib/supabase/client";
 import { isSupabaseEnabled } from "@/lib/supabase/config";
 import type { ActivityEvent } from "@/lib/social/types";
 import { Rss, Search } from "lucide-react";
@@ -32,6 +33,34 @@ export default function FeedPage() {
 
   useEffect(() => {
     void loadInitial();
+  }, [loadInitial]);
+
+  useEffect(() => {
+    if (!isSupabaseEnabled()) return;
+    let channel: ReturnType<ReturnType<typeof getSupabaseBrowser>["channel"]> | null =
+      null;
+    try {
+      const supabase = getSupabaseBrowser();
+      channel = supabase
+        .channel("activity-feed")
+        .on(
+          "postgres_changes",
+          { event: "INSERT", schema: "public", table: "activity_events" },
+          () => void loadInitial(),
+        )
+        .subscribe();
+    } catch {
+      /* realtime optional */
+    }
+    return () => {
+      if (channel) {
+        try {
+          void getSupabaseBrowser().removeChannel(channel);
+        } catch {
+          /* ignore */
+        }
+      }
+    };
   }, [loadInitial]);
 
   const loadMore = async () => {

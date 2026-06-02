@@ -4,12 +4,15 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/social/UserAvatar";
 import { SearchModal } from "@/components/social/SearchModal";
+import { usePresence } from "@/contexts/presence-context";
 import {
   listFriends,
   listFriendRequests,
   respondFriendRequest,
   removeFriend,
+  cancelFriendRequest,
 } from "@/lib/social/friends-service";
+import { getSupabaseBrowser } from "@/lib/supabase/client";
 import { isSupabaseEnabled } from "@/lib/supabase/config";
 import { profileHref, type Friend, type FriendRequest } from "@/lib/social/types";
 import { cn } from "@/lib/cn";
@@ -20,12 +23,14 @@ import { useCallback, useEffect, useState } from "react";
 type Tab = "friends" | "requests";
 
 export default function FriendsPage() {
+  const { friends: livePresence } = usePresence();
   const [tab, setTab] = useState<Tab>("friends");
   const [friends, setFriends] = useState<Friend[]>([]);
   const [inbox, setInbox] = useState<FriendRequest[]>([]);
   const [outbox, setOutbox] = useState<FriendRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (!isSupabaseEnabled()) {
@@ -33,6 +38,7 @@ export default function FriendsPage() {
       return;
     }
     setLoading(true);
+    setError(null);
     const [f, i, o] = await Promise.all([
       listFriends(),
       listFriendRequests(true),
@@ -48,13 +54,57 @@ export default function FriendsPage() {
     void refresh();
   }, [refresh]);
 
+  useEffect(() => {
+    if (!isSupabaseEnabled()) return;
+    let channel: ReturnType<ReturnType<typeof getSupabaseBrowser>["channel"]> | null =
+      null;
+    try {
+      const supabase = getSupabaseBrowser();
+      channel = supabase
+        .channel("friends-graph")
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "friend_requests" },
+          () => void refresh(),
+        )
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "friends" },
+          () => void refresh(),
+        )
+        .subscribe();
+    } catch {
+      /* realtime optional */
+    }
+    return () => {
+      if (channel) {
+        try {
+          void getSupabaseBrowser().removeChannel(channel);
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+  }, [refresh]);
+
   const respond = async (id: string, accept: boolean) => {
-    await respondFriendRequest(id, accept);
+    setError(null);
+    const res = await respondFriendRequest(id, accept);
+    if (!res.ok) setError(res.error);
+    await refresh();
+  };
+
+  const cancel = async (id: string) => {
+    setError(null);
+    const res = await cancelFriendRequest(id);
+    if (!res.ok) setError(res.error);
     await refresh();
   };
 
   const unfriend = async (userId: string) => {
-    await removeFriend(userId);
+    setError(null);
+    const res = await removeFriend(userId);
+    if (!res.ok) setError(res.error);
     await refresh();
   };
 
@@ -70,11 +120,24 @@ export default function FriendsPage() {
     );
   }
 
-  const studyingCount = friends.filter((f) => f.presenceStatus === "studying").length;
+  const friendsWithPresence = friends.map((f) => ({
+    ...f,
+    presenceStatus: livePresence[f.userId] ?? f.presenceStatus,
+  }));
+
+  const studyingCount = friendsWithPresence.filter(
+    (f) => f.presenceStatus === "studying",
+  ).length;
 
   return (
     <div className="space-y-6">
       <Header onSearch={() => setSearchOpen(true)} studyingCount={studyingCount} />
+
+      {error ? (
+        <p className="rounded-xl border border-alert/30 bg-alert/10 px-3 py-2 text-sm text-alert">
+          {error}
+        </p>
+      ) : null}
 
       <div className="flex gap-1 rounded-xl border border-white/45 bg-white/30 p-1 dark:border-white/10 dark:bg-white/[0.05]">
         <TabButton active={tab === "friends"} onClick={() => setTab("friends")}>
@@ -88,7 +151,7 @@ export default function FriendsPage() {
       {loading ? (
         <Card className="h-32 animate-pulse" />
       ) : tab === "friends" ? (
-        friends.length === 0 ? (
+        friendsWithPresence.length === 0 ? (
           <EmptyState
             icon={Users}
             title="No friends yet"
@@ -101,7 +164,7 @@ export default function FriendsPage() {
           />
         ) : (
           <div className="space-y-2">
-            {friends.map((f) => (
+            {friendsWithPresence.map((f) => (
               <Card key={f.userId} className="flex items-center gap-3 p-3">
                 <Link href={profileHref(f)} className="flex min-w-0 flex-1 items-center gap-3">
                   <UserAvatar
@@ -117,12 +180,13 @@ export default function FriendsPage() {
                       {f.displayName}
                     </p>
                     <p className="flex items-center gap-2 truncate text-xs text-muted">
+                      {f.username ? `@${f.username}` : f.publicUid}
                       {f.presenceStatus === "studying" ? (
                         <span className="font-medium text-emerald-600 dark:text-emerald-400">
-                          Studying now
+                          · Studying now
                         </span>
                       ) : (
-                        <span>Lv {f.level}</span>
+                        <span> · Lv {f.level}</span>
                       )}
                       {f.currentStreak > 0 ? (
                         <span className="inline-flex items-center gap-0.5">
@@ -150,6 +214,7 @@ export default function FriendsPage() {
           inbox={inbox}
           outbox={outbox}
           onRespond={respond}
+          onCancel={cancel}
           onFind={() => setSearchOpen(true)}
         />
       )}
@@ -173,7 +238,7 @@ function Header({
   studyingCount?: number;
 }) {
   return (
-    <div className="flex items-end justify-between gap-3">
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight text-text">Friends</h1>
         <p className="mt-1 text-sm text-muted">
@@ -182,7 +247,7 @@ function Header({
             : "Connect with study partners and keep each other accountable."}
         </p>
       </div>
-      <Button variant="secondary" onClick={onSearch}>
+      <Button variant="secondary" onClick={onSearch} className="shrink-0">
         <Search className="h-4 w-4" /> Find people
       </Button>
     </div>
@@ -218,11 +283,13 @@ function RequestsTab({
   inbox,
   outbox,
   onRespond,
+  onCancel,
   onFind,
 }: {
   inbox: FriendRequest[];
   outbox: FriendRequest[];
   onRespond: (id: string, accept: boolean) => void;
+  onCancel: (id: string) => void;
   onFind: () => void;
 }) {
   if (inbox.length === 0 && outbox.length === 0) {
@@ -293,20 +360,29 @@ function RequestsTab({
             Sent
           </h2>
           {outbox.map((r) => (
-            <Card key={r.requestId} className="flex items-center gap-3 p-3 opacity-80">
-              <UserAvatar
-                userId={r.userId}
-                displayName={r.displayName}
-                avatarId={r.avatarId}
-                frameId={r.frameId}
-                size={40}
-              />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-text">
-                  {r.displayName}
-                </p>
-                <p className="truncate text-xs text-muted">Request pending</p>
-              </div>
+            <Card key={r.requestId} className="flex items-center gap-3 p-3">
+              <Link href={profileHref(r)} className="flex min-w-0 flex-1 items-center gap-3">
+                <UserAvatar
+                  userId={r.userId}
+                  displayName={r.displayName}
+                  avatarId={r.avatarId}
+                  frameId={r.frameId}
+                  size={40}
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-text">
+                    {r.displayName}
+                  </p>
+                  <p className="truncate text-xs text-muted">Request pending</p>
+                </div>
+              </Link>
+              <button
+                type="button"
+                onClick={() => onCancel(r.requestId)}
+                className="rounded-lg border border-white/45 bg-white/30 px-2.5 py-1.5 text-xs font-medium text-muted transition hover:text-alert dark:border-white/10 dark:bg-white/[0.05]"
+              >
+                Cancel
+              </button>
             </Card>
           ))}
         </div>

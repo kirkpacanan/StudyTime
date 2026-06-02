@@ -15,7 +15,6 @@ import {
   saveLoadout,
   unpairBuddy,
 } from "@/lib/gamification/progression-storage";
-import { emitActivity } from "@/lib/social/feed-service";
 import {
   createContext,
   useCallback,
@@ -35,7 +34,7 @@ type ProgressionContextValue = {
   togglePinnedBadge: (id: AchievementId) => Promise<void>;
   equipTitle: (titleId: string | null) => Promise<void>;
   pair: (buddyId: string) => Promise<{ ok: boolean; error?: string }>;
-  unpair: () => Promise<void>;
+  unpair: () => Promise<{ ok: boolean; error?: string }>;
   prestige: () => Promise<{ ok: boolean; error?: string }>;
 };
 
@@ -137,19 +136,17 @@ export function ProgressionProvider({
     async (buddyId: string) => {
       if (!userId) return { ok: false, error: "Not signed in." };
       const res = await pairBuddy(userId, buddyId.trim());
-      if (res.ok) {
-        void emitActivity("buddy_paired", { objectType: "user", objectId: buddyId.trim() });
-        await refresh();
-      }
+      if (res.ok) await refresh();
       return res;
     },
     [userId, refresh],
   );
 
   const unpair = useCallback(async () => {
-    if (!userId) return;
-    await unpairBuddy(userId);
-    await refresh();
+    if (!userId) return { ok: false, error: "Not signed in." };
+    const res = await unpairBuddy(userId);
+    if (res.ok) await refresh();
+    return res;
   }, [userId, refresh]);
 
   const prestige = useCallback(async () => {

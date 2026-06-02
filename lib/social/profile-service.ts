@@ -22,6 +22,33 @@ export class SocialUnavailableError extends Error {
   }
 }
 
+/** Thrown when social RPCs/tables are missing on the Supabase project. */
+export class SocialSetupError extends Error {
+  constructor(context: string) {
+    super(
+      `Social database is not set up (${context}). Apply supabase/APPLY_SOCIAL.sql in the Supabase SQL editor, or run: npx supabase db push`,
+    );
+    this.name = "SocialSetupError";
+  }
+}
+
+function isMissingRpc(error: { message?: string; code?: string } | null): boolean {
+  if (!error) return false;
+  return (
+    error.code === "PGRST202" ||
+    error.code === "42883" ||
+    /Could not find the function/i.test(error.message ?? "") ||
+    /function .* does not exist/i.test(error.message ?? "")
+  );
+}
+
+function rpcError(error: { message?: string; code?: string }, context: string): string {
+  if (isMissingRpc(error)) {
+    return new SocialSetupError(context).message;
+  }
+  return humanize(error.message ?? "Something went wrong.");
+}
+
 function ensureCloud() {
   if (!isSupabaseEnabled()) throw new SocialUnavailableError();
   return getSupabaseBrowser();
@@ -40,6 +67,7 @@ export async function getMyProfile(): Promise<MyProfile | null> {
     publicUid: String(d.publicUid ?? ""),
     displayName: String(d.displayName ?? "Student"),
     memberSince: String(d.memberSince ?? new Date().toISOString()),
+    friendCount: Number(d.friendCount ?? 0),
     privacy: { ...DEFAULT_PRIVACY, ...privacy },
   };
 }
@@ -79,38 +107,45 @@ export async function getPublicProfile(handle: {
   userId?: string;
   username?: string;
   publicUid?: string;
-}): Promise<PublicProfileCard | null> {
+}): Promise<{ profile: PublicProfileCard | null; error: string | null }> {
   const supabase = ensureCloud();
   const { data, error } = await supabase.rpc("get_public_profile", {
     p_target: handle.userId ?? null,
     p_username: handle.username ?? null,
     p_public_uid: handle.publicUid ?? null,
   });
-  if (error || !data) return null;
-  return mapCard(data as Record<string, unknown>);
+  if (error) return { profile: null, error: rpcError(error, "get_public_profile") };
+  if (!data) return { profile: null, error: null };
+  return { profile: mapCard(data as Record<string, unknown>), error: null };
 }
 
 export async function searchUsers(
   query: string,
   limit = 20,
-): Promise<UserSearchResult[]> {
+): Promise<{ results: UserSearchResult[]; error: string | null }> {
   const supabase = ensureCloud();
   const term = query.trim();
-  if (term.length < 2) return [];
+  if (term.length < 2) return { results: [], error: null };
   const { data, error } = await supabase.rpc("search_users", {
     p_query: term,
     p_limit: limit,
   });
-  if (error || !data) return [];
-  return (data as Record<string, unknown>[]).map((r) => ({
-    userId: String(r.user_id),
-    username: (r.username as string | null) ?? null,
-    publicUid: String(r.public_uid ?? ""),
-    displayName: String(r.display_name ?? "Student"),
-    avatarId: (r.avatar_id as string | null) ?? null,
-    frameId: (r.frame_id as string | null) ?? null,
-    level: Number(r.level ?? 1),
-  }));
+  if (error) return { results: [], error: rpcError(error, "search_users") };
+  if (!data) return { results: [], error: null };
+  return {
+    results: (data as Record<string, unknown>[]).map((r) => ({
+      userId: String(r.user_id),
+      username: (r.username as string | null) ?? null,
+      publicUid: String(r.public_uid ?? ""),
+      displayName: String(r.display_name ?? "Student"),
+      avatarId: (r.avatar_id as string | null) ?? null,
+      frameId: (r.frame_id as string | null) ?? null,
+      level: Number(r.level ?? 1),
+      relationship:
+        (r.relationship as UserSearchResult["relationship"]) ?? "none",
+    })),
+    error: null,
+  };
 }
 
 async function coerceMyProfile(data: unknown): Promise<MyProfile | null> {
@@ -124,7 +159,23 @@ async function coerceMyProfile(data: unknown): Promise<MyProfile | null> {
     publicUid: String(d.publicUid ?? ""),
     displayName: String(d.displayName ?? "Student"),
     memberSince: String(d.memberSince ?? new Date().toISOString()),
+    friendCount: Number(d.friendCount ?? 0),
     privacy: { ...DEFAULT_PRIVACY, ...privacy },
+  };
+}
+
+function mapStudyBuddy(raw: unknown): PublicProfileCard["studyBuddy"] {
+  if (!raw || typeof raw !== "object") return null;
+  const b = raw as Record<string, unknown>;
+  return {
+    buddyId: String(b.buddyId),
+    username: (b.username as string | null) ?? null,
+    publicUid: String(b.publicUid ?? ""),
+    displayName: String(b.displayName ?? "Study buddy"),
+    avatarId: (b.avatarId as string | null) ?? null,
+    frameId: (b.frameId as string | null) ?? null,
+    level: Number(b.level ?? 1),
+    pairedSince: String(b.pairedSince ?? new Date().toISOString()),
   };
 }
 
@@ -155,6 +206,8 @@ function mapCard(d: Record<string, unknown>): PublicProfileCard {
     xp: Number(d.xp ?? 0),
     relationship:
       (d.relationship as PublicProfileCard["relationship"]) ?? "none",
+    friendCount: Number(d.friendCount ?? 0),
+    studyBuddy: mapStudyBuddy(d.studyBuddy),
     visible: Boolean(d.visible),
     stats: stats
       ? {

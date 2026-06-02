@@ -422,27 +422,21 @@ export async function saveQuests(
 export async function getBuddy(userId: string): Promise<BuddyState | null> {
   if (isSupabaseEnabled()) {
     const supabase = getSupabaseBrowser();
-    const { data } = await supabase
-      .from("study_buddies")
-      .select("user_a, user_b, status")
-      .or(`user_a.eq.${userId},user_b.eq.${userId}`)
-      .neq("status", "ended")
-      .limit(1)
-      .maybeSingle();
-    if (!data) return null;
-    const buddyId =
-      data.user_a === userId ? (data.user_b as string) : (data.user_a as string);
-    // profiles is RLS-restricted to own rows; resolve the buddy's display name
-    // through the SECURITY DEFINER RPC instead of reading profiles directly.
-    const { data: display } = await supabase.rpc("resolve_user_display", {
-      p_user_id: buddyId,
-    });
-    const buddyName =
-      (display as { displayName?: string } | null)?.displayName || "Study buddy";
+    const { data, error } = await supabase.rpc("get_study_buddy");
+    if (error || !data) return null;
+    const d = data as Record<string, unknown>;
     return {
-      buddyId,
-      buddyName,
-      status: data.status as BuddyState["status"],
+      buddyId: String(d.buddyId),
+      buddyName: String(d.displayName ?? "Study buddy"),
+      username: (d.username as string | null) ?? null,
+      publicUid: String(d.publicUid ?? ""),
+      avatarId: (d.avatarId as string | null) ?? null,
+      frameId: (d.frameId as string | null) ?? null,
+      level: Number(d.level ?? 1),
+      prestige: Number(d.prestige ?? 0),
+      currentStreak: Number(d.currentStreak ?? 0),
+      pairedSince: (d.pairedSince as string | null) ?? null,
+      status: (d.status as BuddyState["status"]) ?? "active",
     };
   }
   const store = ls();
@@ -458,21 +452,27 @@ export async function pairBuddy(
   }
   if (isSupabaseEnabled()) {
     const supabase = getSupabaseBrowser();
-    const { data: display } = await supabase.rpc("resolve_user_display", {
-      p_user_id: buddyId,
-    });
-    if (!display) return { ok: false, error: "No user found with that ID." };
-    const [a, b] = [userId, buddyId].sort();
-    const { error } = await supabase.from("study_buddies").upsert(
-      { user_a: a, user_b: b, status: "active" },
-      { onConflict: "user_a,user_b" },
-    );
-    if (error) return { ok: false, error: error.message };
+    const { error } = await supabase.rpc("pair_study_buddy", { p_buddy: buddyId });
+    if (error) {
+      return { ok: false, error: humanizeBuddyError(error.message) };
+    }
     return { ok: true };
   }
   ls()?.setItem(
     KEY.buddy(userId),
-    JSON.stringify({ buddyId, buddyName: "Study buddy", status: "active" }),
+    JSON.stringify({
+      buddyId,
+      buddyName: "Study buddy",
+      username: null,
+      publicUid: "",
+      avatarId: null,
+      frameId: null,
+      level: 1,
+      prestige: 0,
+      currentStreak: 0,
+      pairedSince: new Date().toISOString(),
+      status: "active",
+    }),
   );
   return { ok: true };
 }
@@ -492,15 +492,19 @@ export async function buddyStudiedToday(buddyId: string): Promise<boolean> {
   return data === true;
 }
 
-export async function unpairBuddy(userId: string): Promise<void> {
+export async function unpairBuddy(userId: string): Promise<{ ok: boolean; error?: string }> {
   if (isSupabaseEnabled()) {
     const supabase = getSupabaseBrowser();
-    await supabase
-      .from("study_buddies")
-      .update({ status: "ended" })
-      .or(`user_a.eq.${userId},user_b.eq.${userId}`)
-      .neq("status", "ended");
-    return;
+    const { error } = await supabase.rpc("unpair_study_buddy");
+    if (error) {
+      return { ok: false, error: humanizeBuddyError(error.message) };
+    }
+    return { ok: true };
   }
   ls()?.removeItem(KEY.buddy(userId));
+  return { ok: true };
+}
+
+function humanizeBuddyError(message: string): string {
+  return message.replace(/^.*?:\s*/, "").trim() || "Something went wrong.";
 }

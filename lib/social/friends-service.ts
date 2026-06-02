@@ -43,14 +43,33 @@ export async function respondFriendRequest(
   return { ok: true, status: String((data as { status?: string })?.status ?? "") };
 }
 
-export async function removeFriend(friendUserId: string): Promise<void> {
+export async function removeFriend(
+  friendUserId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
   const supabase = ensureCloud();
-  await supabase.rpc("remove_friend", { p_friend: friendUserId });
+  const { error } = await supabase.rpc("remove_friend", { p_friend: friendUserId });
+  if (error) return { ok: false, error: humanize(error.message) };
+  return { ok: true };
 }
 
-export async function blockUser(targetUserId: string): Promise<void> {
+export async function blockUser(
+  targetUserId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
   const supabase = ensureCloud();
-  await supabase.rpc("block_user", { p_target: targetUserId });
+  const { error } = await supabase.rpc("block_user", { p_target: targetUserId });
+  if (error) return { ok: false, error: humanize(error.message) };
+  return { ok: true };
+}
+
+export async function cancelFriendRequest(
+  requestId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const supabase = ensureCloud();
+  const { error } = await supabase.rpc("cancel_friend_request", {
+    p_request_id: requestId,
+  });
+  if (error) return { ok: false, error: humanize(error.message) };
+  return { ok: true };
 }
 
 export async function listFriends(): Promise<Friend[]> {

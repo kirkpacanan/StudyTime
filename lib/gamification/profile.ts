@@ -44,5 +44,13 @@ export const DEFAULT_LOADOUT: ProfileLoadout = {
 export type BuddyState = {
   buddyId: string;
   buddyName: string;
+  username: string | null;
+  publicUid: string;
+  avatarId: string | null;
+  frameId: string | null;
+  level: number;
+  prestige: number;
+  currentStreak: number;
+  pairedSince: string | null;
   status: "pending" | "active" | "ended";
 };

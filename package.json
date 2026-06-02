@@ -8,7 +8,8 @@
     "dev": "next dev --webpack",
     "build": "next build --webpack",
     "start": "next start",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "check:social": "node scripts/check-social-rpc.mjs"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^0.10.35",

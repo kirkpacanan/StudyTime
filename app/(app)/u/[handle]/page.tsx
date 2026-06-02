@@ -3,6 +3,7 @@
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/social/UserAvatar";
+import { RelationshipBadge } from "@/components/social/RelationshipBadge";
 import { RankChip } from "@/components/gamification/RankChip";
 import { achievementIcon } from "@/components/gamification/icons";
 import { ACHIEVEMENTS, type AchievementId } from "@/lib/gamification/achievements";
@@ -11,16 +12,23 @@ import { getPublicProfile } from "@/lib/social/profile-service";
 import {
   sendFriendRequest,
   removeFriend,
+  blockUser,
+  listFriendRequests,
+  respondFriendRequest,
 } from "@/lib/social/friends-service";
 import { useProgression } from "@/contexts/progression-context";
 import { isSupabaseEnabled } from "@/lib/supabase/config";
-import type { PublicProfileCard } from "@/lib/social/types";
+import { profileHref, type PublicProfileCard } from "@/lib/social/types";
+import { timeAgo } from "@/lib/social/format";
 import {
   ArrowLeft,
   Check,
   Clock,
+  Copy,
   Flame,
+  Heart,
   Lock,
+  ShieldBan,
   Trophy,
   UserMinus,
   UserPlus,
@@ -38,6 +46,9 @@ export default function PublicProfilePage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [incomingRequestId, setIncomingRequestId] = useState<string | null>(null);
+  const [copiedUid, setCopiedUid] = useState(false);
 
   const handle = decodeURIComponent(params.handle ?? "");
 
@@ -47,12 +58,13 @@ export default function PublicProfilePage() {
       return;
     }
     setLoading(true);
+    setError(null);
     const isPublicUid = /^ST-/i.test(handle);
     const isUuid =
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
         handle,
       );
-    const result = await getPublicProfile(
+    const { profile: result, error: loadError } = await getPublicProfile(
       isUuid
         ? { userId: handle }
         : isPublicUid
@@ -60,6 +72,14 @@ export default function PublicProfilePage() {
           : { username: handle },
     );
     setCard(result);
+    if (loadError) setError(loadError);
+    if (result && result.relationship === "pending_in") {
+      const inbox = await listFriendRequests(true);
+      const match = inbox.find((r) => r.userId === result.userId);
+      setIncomingRequestId(match?.requestId ?? null);
+    } else {
+      setIncomingRequestId(null);
+    }
     setLoading(false);
   }, [handle]);
 
@@ -67,9 +87,20 @@ export default function PublicProfilePage() {
     void load();
   }, [load]);
 
+  const copyUid = async (uid: string) => {
+    try {
+      await navigator.clipboard.writeText(uid);
+      setCopiedUid(true);
+      setTimeout(() => setCopiedUid(false), 1500);
+    } catch {
+      setError("Could not copy UID.");
+    }
+  };
+
   const onAddFriend = async () => {
     if (!card) return;
     setBusy(true);
+    setError(null);
     const res = await sendFriendRequest(card.userId);
     setBusy(false);
     if (res.ok) {
@@ -78,25 +109,77 @@ export default function PublicProfilePage() {
       );
       void load();
     } else {
-      setNotice(res.error);
+      setError(res.error);
+    }
+  };
+
+  const onAcceptRequest = async () => {
+    if (!incomingRequestId) return;
+    setBusy(true);
+    setError(null);
+    const res = await respondFriendRequest(incomingRequestId, true);
+    setBusy(false);
+    if (res.ok) {
+      setNotice("You are now friends!");
+      void load();
+    } else {
+      setError(res.error);
     }
   };
 
   const onRemoveFriend = async () => {
     if (!card) return;
     setBusy(true);
-    await removeFriend(card.userId);
+    setError(null);
+    const res = await removeFriend(card.userId);
     setBusy(false);
-    setNotice("Friend removed.");
-    void load();
+    if (res.ok) {
+      setNotice("Friend removed.");
+      void load();
+    } else {
+      setError(res.error);
+    }
+  };
+
+  const onBlock = async () => {
+    if (!card) return;
+    setBusy(true);
+    setError(null);
+    const res = await blockUser(card.userId);
+    setBusy(false);
+    if (res.ok) {
+      setNotice("User blocked.");
+      void load();
+    } else {
+      setError(res.error);
+    }
   };
 
   const onSetBuddy = async () => {
     if (!card) return;
     setBusy(true);
+    setError(null);
     const res = await pair(card.userId);
     setBusy(false);
-    setNotice(res.ok ? "Study buddy set!" : (res.error ?? "Could not set buddy."));
+    if (res.ok) {
+      setNotice("Study buddy paired!");
+      void load();
+    } else {
+      setError(res.error ?? "Could not set buddy.");
+    }
+  };
+
+  const onUnpairBuddy = async () => {
+    setBusy(true);
+    setError(null);
+    const res = await unpair();
+    setBusy(false);
+    if (res.ok) {
+      setNotice("Study buddy removed.");
+      void load();
+    } else {
+      setError(res.error ?? "Could not unpair.");
+    }
   };
 
   if (!isSupabaseEnabled()) {
@@ -124,10 +207,19 @@ export default function PublicProfilePage() {
     return (
       <ProfileShell>
         <Card className="text-center">
-          <p className="text-sm font-medium text-text">User not found</p>
-          <p className="mt-1 text-sm text-muted">
-            No profile matches “{handle}”.
-          </p>
+          {error ? (
+            <>
+              <p className="text-sm font-medium text-alert">Could not load profile</p>
+              <p className="mx-auto mt-2 max-w-md text-sm text-muted">{error}</p>
+            </>
+          ) : (
+            <>
+              <p className="text-sm font-medium text-text">User not found</p>
+              <p className="mt-1 text-sm text-muted">
+                No profile matches “{handle}”.
+              </p>
+            </>
+          )}
         </Card>
       </ProfileShell>
     );
@@ -136,6 +228,10 @@ export default function PublicProfilePage() {
   const rank = rankForLevel(card.level);
   const isSelf = card.relationship === "self";
   const isFriend = card.relationship === "friend";
+  const isPendingIn = card.relationship === "pending_in";
+  const isPendingOut = card.relationship === "pending_out";
+  const isBlocked =
+    card.relationship === "blocked" || card.relationship === "blocked_by";
   const currentBuddyId = snapshot?.buddy?.buddyId ?? null;
   const isYourBuddy = currentBuddyId === card.userId;
   const canSetBuddy = isFriend && !isSelf && !isYourBuddy;
@@ -156,29 +252,70 @@ export default function PublicProfilePage() {
           />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-xl font-semibold tracking-tight text-text">
+              <h1 className="text-xl font-semibold tracking-tight text-text sm:text-2xl">
                 {card.displayName}
               </h1>
               <RankChip rank={rank} prestige={card.prestige} />
+              {!isSelf ? (
+                <RelationshipBadge relationship={card.relationship} />
+              ) : null}
             </div>
-            <p className="mt-0.5 text-sm text-muted">
-              {card.username ? `@${card.username}` : null}
-              {card.username ? " · " : null}
-              <span className="font-mono">{card.publicUid}</span>
-            </p>
+
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+              {card.username ? (
+                <span className="font-medium text-text">@{card.username}</span>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => void copyUid(card.publicUid)}
+                className="inline-flex items-center gap-1 rounded-lg border border-white/45 bg-white/30 px-2 py-0.5 font-mono text-xs font-semibold text-text transition hover:bg-white/50 dark:border-white/10 dark:bg-white/[0.05]"
+                title="Copy UID"
+              >
+                {copiedUid ? (
+                  <Check className="h-3 w-3 text-emerald-500" />
+                ) : (
+                  <Copy className="h-3 w-3 text-muted" />
+                )}
+                {card.publicUid}
+              </button>
+            </div>
+
+            <div className="mt-2 flex flex-wrap gap-3 text-xs text-muted">
+              <span className="inline-flex items-center gap-1">
+                <Users className="h-3.5 w-3.5" />
+                {card.friendCount} {card.friendCount === 1 ? "friend" : "friends"}
+              </span>
+              <span>Lv {card.level}</span>
+              <span>
+                Member since{" "}
+                {new Date(card.memberSince).toLocaleDateString(undefined, {
+                  month: "short",
+                  year: "numeric",
+                })}
+              </span>
+            </div>
+
             {card.loadout.bio ? (
-              <p className="mt-2 text-sm text-text">{card.loadout.bio}</p>
+              <p className="mt-3 text-sm text-text">{card.loadout.bio}</p>
             ) : card.loadout.status ? (
-              <p className="mt-2 text-sm italic text-muted">
+              <p className="mt-3 text-sm italic text-muted">
                 “{card.loadout.status}”
               </p>
             ) : null}
 
-            {!isSelf ? (
+            {!isSelf && !isBlocked ? (
               <div className="mt-4 flex flex-wrap gap-2">
                 {isFriend ? (
                   <Button variant="secondary" onClick={onRemoveFriend} disabled={busy}>
                     <UserMinus className="h-4 w-4" /> Remove friend
+                  </Button>
+                ) : isPendingIn ? (
+                  <Button onClick={onAcceptRequest} disabled={busy || !incomingRequestId}>
+                    <Check className="h-4 w-4" /> Accept request
+                  </Button>
+                ) : isPendingOut ? (
+                  <Button variant="secondary" disabled>
+                    Request sent
                   </Button>
                 ) : card.allowFriendRequests ? (
                   <Button onClick={onAddFriend} disabled={busy}>
@@ -187,15 +324,24 @@ export default function PublicProfilePage() {
                 ) : null}
                 {canSetBuddy ? (
                   <Button variant="secondary" onClick={onSetBuddy} disabled={busy}>
-                    <Users className="h-4 w-4" /> Set as study buddy
+                    <Heart className="h-4 w-4" /> Set as study buddy
                   </Button>
                 ) : null}
                 {isYourBuddy ? (
-                  <span className="inline-flex items-center gap-1 rounded-xl border border-emerald-400/40 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-700 dark:text-emerald-300">
-                    <Check className="h-4 w-4" /> Your study buddy
-                  </span>
+                  <Button variant="secondary" onClick={onUnpairBuddy} disabled={busy}>
+                    <Users className="h-4 w-4" /> Unpair buddy
+                  </Button>
+                ) : null}
+                {!isFriend && !isPendingIn && !isPendingOut ? (
+                  <Button variant="secondary" onClick={onBlock} disabled={busy}>
+                    <ShieldBan className="h-4 w-4" /> Block
+                  </Button>
                 ) : null}
               </div>
+            ) : null}
+
+            {error ? (
+              <p className="mt-3 text-xs font-medium text-alert">{error}</p>
             ) : null}
             {notice ? (
               <p className="mt-3 text-xs font-medium text-emerald-600 dark:text-emerald-400">
@@ -206,6 +352,48 @@ export default function PublicProfilePage() {
         </div>
       </Card>
 
+      {card.studyBuddy ? (
+        <Card className="border-emerald-400/30 bg-emerald-500/5">
+          <div className="flex items-center gap-2 text-sm font-semibold text-text">
+            <Heart className="h-4 w-4 text-emerald-500" />
+            Study buddy
+          </div>
+          <div className="mt-3 flex items-center gap-3">
+            <Link href={profileHref(card.studyBuddy)} className="shrink-0">
+              <UserAvatar
+                userId={card.studyBuddy.buddyId}
+                displayName={card.studyBuddy.displayName}
+                avatarId={card.studyBuddy.avatarId}
+                frameId={card.studyBuddy.frameId}
+                size={48}
+              />
+            </Link>
+            <div className="min-w-0 flex-1">
+              <Link
+                href={profileHref(card.studyBuddy)}
+                className="truncate text-sm font-semibold text-text hover:underline"
+              >
+                {card.studyBuddy.displayName}
+              </Link>
+              <p className="truncate text-xs text-muted">
+                {card.studyBuddy.username
+                  ? `@${card.studyBuddy.username}`
+                  : card.studyBuddy.publicUid}{" "}
+                · Lv {card.studyBuddy.level}
+              </p>
+              <p className="text-[11px] text-emerald-600 dark:text-emerald-400">
+                Paired {timeAgo(card.studyBuddy.pairedSince)}
+              </p>
+            </div>
+            {isYourBuddy ? (
+              <span className="shrink-0 rounded-lg border border-emerald-400/40 bg-emerald-500/10 px-2 py-1 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">
+                Your buddy
+              </span>
+            ) : null}
+          </div>
+        </Card>
+      ) : null}
+
       {card.visible && card.stats ? (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Stat icon={Flame} label="Current streak" value={`${card.stats.currentStreak}d`} />
@@ -215,7 +403,7 @@ export default function PublicProfilePage() {
         </div>
       ) : (
         <Card className="flex items-center gap-3 text-sm text-muted">
-          <Lock className="h-4 w-4" />
+          <Lock className="h-4 w-4 shrink-0" />
           {card.profileVisibility === "private"
             ? "This profile is private."
             : "Add this user as a friend to see their study stats."}

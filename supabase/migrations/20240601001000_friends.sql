@@ -156,43 +156,80 @@ begin
 end;
 $$;
 
+drop function if exists public.remove_friend(uuid);
+drop function if exists public.block_user(uuid);
+
 create or replace function public.remove_friend(p_friend uuid)
-returns void
+returns jsonb
 language plpgsql
 security definer
 set search_path = public
 as $$
 declare
   v_self uuid := auth.uid();
+  v_a uuid;
+  v_b uuid;
 begin
   if v_self is null then raise exception 'Not authenticated'; end if;
+
+  v_a := least(v_self, p_friend);
+  v_b := greatest(v_self, p_friend);
+
   delete from public.friends
-  where (user_a = least(v_self, p_friend) and user_b = greatest(v_self, p_friend));
+  where user_a = v_a and user_b = v_b;
+
+  if not found then
+    raise exception 'Friendship not found.';
+  end if;
+
   delete from public.friend_requests
   where (requester_id = v_self and addressee_id = p_friend)
      or (requester_id = p_friend and addressee_id = v_self);
+
+  update public.study_buddies
+  set status = 'ended'
+  where status = 'active'
+    and user_a = v_a and user_b = v_b;
+
+  return jsonb_build_object('status', 'removed');
 end;
 $$;
 
 create or replace function public.block_user(p_target uuid)
-returns void
+returns jsonb
 language plpgsql
 security definer
 set search_path = public
 as $$
 declare
   v_self uuid := auth.uid();
+  v_a uuid;
+  v_b uuid;
 begin
   if v_self is null then raise exception 'Not authenticated'; end if;
+  if v_self = p_target then raise exception 'You cannot block yourself.'; end if;
+
+  v_a := least(v_self, p_target);
+  v_b := greatest(v_self, p_target);
+
   delete from public.friends
-  where (user_a = least(v_self, p_target) and user_b = greatest(v_self, p_target));
+  where user_a = v_a and user_b = v_b;
+
   delete from public.friend_requests
   where (requester_id = p_target and addressee_id = v_self)
      or (requester_id = v_self and addressee_id = p_target);
+
   insert into public.friend_requests (requester_id, addressee_id, status, responded_at)
   values (v_self, p_target, 'blocked', now())
   on conflict (requester_id, addressee_id)
   do update set status = 'blocked', responded_at = now();
+
+  update public.study_buddies
+  set status = 'ended'
+  where status = 'active'
+    and user_a = v_a and user_b = v_b;
+
+  return jsonb_build_object('status', 'blocked');
 end;
 $$;
 

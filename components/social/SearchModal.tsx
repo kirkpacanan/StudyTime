@@ -2,13 +2,61 @@
 
 import { Input } from "@/components/ui/input";
 import { searchUsers } from "@/lib/social/profile-service";
-import { sendFriendRequest } from "@/lib/social/friends-service";
-import { profileHref, type UserSearchResult } from "@/lib/social/types";
+import {
+  listFriendRequests,
+  respondFriendRequest,
+  sendFriendRequest,
+} from "@/lib/social/friends-service";
+import { profileHref, type FriendRelationship, type UserSearchResult } from "@/lib/social/types";
+import { RelationshipBadge } from "./RelationshipBadge";
 import { AnimatePresence, motion } from "framer-motion";
 import { Check, Search, UserPlus, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { UserAvatar } from "./UserAvatar";
+
+function ActionButton({
+  user,
+  onAction,
+  busy,
+}: {
+  user: UserSearchResult;
+  onAction: () => void;
+  busy: boolean;
+}) {
+  const rel = user.relationship;
+  if (rel === "friend") {
+    return <RelationshipBadge relationship="friend" />;
+  }
+  if (rel === "pending_out") {
+    return <RelationshipBadge relationship="pending_out" />;
+  }
+  if (rel === "pending_in") {
+    return (
+      <button
+        type="button"
+        onClick={onAction}
+        disabled={busy}
+        className="inline-flex items-center gap-1 rounded-lg border border-sky-400/40 bg-sky-500/10 px-2.5 py-1.5 text-xs font-semibold text-sky-700 transition hover:bg-sky-500/20 disabled:opacity-60 dark:text-sky-300"
+      >
+        Accept
+      </button>
+    );
+  }
+  if (rel === "blocked" || rel === "blocked_by") {
+    return <RelationshipBadge relationship={rel} />;
+  }
+  return (
+    <button
+      type="button"
+      onClick={onAction}
+      disabled={busy}
+      className="inline-flex items-center gap-1 rounded-lg border border-emerald-400/40 bg-emerald-500/10 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-500/20 disabled:opacity-60 dark:text-emerald-300"
+    >
+      <UserPlus className="h-3.5 w-3.5" /> Add
+    </button>
+  );
+}
 
 export function SearchModal({
   open,
@@ -20,13 +68,20 @@ export function SearchModal({
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<UserSearchResult[]>([]);
   const [loading, setLoading] = useState(false);
-  const [sent, setSent] = useState<Record<string, boolean>>({});
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [pendingInByUser, setPendingInByUser] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (open) {
       setQuery("");
       setResults([]);
-      setSent({});
+      setError(null);
+      void listFriendRequests(true).then((rows) => {
+        const map: Record<string, string> = {};
+        for (const r of rows) map[r.userId] = r.requestId;
+        setPendingInByUser(map);
+      });
     }
   }, [open]);
 
@@ -40,9 +95,10 @@ export function SearchModal({
     let cancelled = false;
     setLoading(true);
     const t = setTimeout(async () => {
-      const res = await searchUsers(term);
+      const { results: res, error: searchError } = await searchUsers(term);
       if (!cancelled) {
         setResults(res);
+        if (searchError) setError(searchError);
         setLoading(false);
       }
     }, 250);
@@ -60,10 +116,39 @@ export function SearchModal({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  async function handleAdd(userId: string) {
-    setSent((s) => ({ ...s, [userId]: true }));
-    const res = await sendFriendRequest(userId);
-    if (!res.ok) setSent((s) => ({ ...s, [userId]: false }));
+  async function handleAction(user: UserSearchResult) {
+    setError(null);
+    setBusyId(user.userId);
+    if (user.relationship === "pending_in") {
+      const requestId = pendingInByUser[user.userId];
+      if (!requestId) {
+        setError("Could not find the incoming request.");
+        setBusyId(null);
+        return;
+      }
+      const res = await respondFriendRequest(requestId, true);
+      if (!res.ok) setError(res.error);
+      else {
+        setResults((prev) =>
+          prev.map((u) =>
+            u.userId === user.userId ? { ...u, relationship: "friend" as FriendRelationship } : u,
+          ),
+        );
+      }
+    } else {
+      const res = await sendFriendRequest(user.userId);
+      if (!res.ok) setError(res.error);
+      else {
+        const nextRel: FriendRelationship =
+          res.status === "accepted" ? "friend" : "pending_out";
+        setResults((prev) =>
+          prev.map((u) =>
+            u.userId === user.userId ? { ...u, relationship: nextRel } : u,
+          ),
+        );
+      }
+    }
+    setBusyId(null);
   }
 
   return (
@@ -104,13 +189,18 @@ export function SearchModal({
             </div>
 
             <div className="max-h-[50vh] overflow-y-auto p-2">
+              {error ? (
+                <p className="mx-2 mb-2 rounded-lg border border-alert/30 bg-alert/10 px-3 py-2 text-xs text-alert">
+                  {error}
+                </p>
+              ) : null}
               {loading ? (
                 <p className="px-3 py-6 text-center text-sm text-muted">
                   Searching…
                 </p>
               ) : query.trim().length < 2 ? (
                 <p className="px-3 py-6 text-center text-sm text-muted">
-                  Type at least 2 characters to find study partners.
+                  Type at least 2 characters. Try @username or ST-8F4K92.
                 </p>
               ) : results.length === 0 ? (
                 <p className="px-3 py-6 text-center text-sm text-muted">
@@ -145,22 +235,11 @@ export function SearchModal({
                           </p>
                         </div>
                       </Link>
-                      <button
-                        type="button"
-                        onClick={() => handleAdd(u.userId)}
-                        disabled={sent[u.userId]}
-                        className="inline-flex items-center gap-1 rounded-lg border border-emerald-400/40 bg-emerald-500/10 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-500/20 disabled:opacity-60 dark:text-emerald-300"
-                      >
-                        {sent[u.userId] ? (
-                          <>
-                            <Check className="h-3.5 w-3.5" /> Sent
-                          </>
-                        ) : (
-                          <>
-                            <UserPlus className="h-3.5 w-3.5" /> Add
-                          </>
-                        )}
-                      </button>
+                      <ActionButton
+                        user={u}
+                        busy={busyId === u.userId}
+                        onAction={() => void handleAction(u)}
+                      />
                     </li>
                   ))}
                 </ul>

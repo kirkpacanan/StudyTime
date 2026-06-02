@@ -4,27 +4,77 @@ import {
   getNotifications,
   markNotificationsRead,
 } from "@/lib/social/feed-service";
+import { profileHref } from "@/lib/social/types";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
 import { isSupabaseEnabled } from "@/lib/supabase/config";
 import { timeAgo } from "@/lib/social/format";
 import type { AppNotification } from "@/lib/social/types";
 import { AnimatePresence, motion } from "framer-motion";
-import { Bell, Check, UserPlus, Users } from "lucide-react";
+import { Award, Bell, Check, UserPlus, Users } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 const POLL_MS = 60_000;
 
-function label(n: AppNotification): { text: string; icon: typeof Bell; href: string } {
+function actorName(payload: Record<string, unknown>): string {
+  const name = payload.displayName;
+  if (typeof name === "string" && name.trim()) return name;
+  const username = payload.username;
+  if (typeof username === "string" && username.trim()) return `@${username}`;
+  const uid = payload.publicUid;
+  if (typeof uid === "string" && uid.trim()) return uid;
+  return "Someone";
+}
+
+function label(n: AppNotification): {
+  actor: string;
+  text: string;
+  icon: typeof Bell;
+  href: string;
+} {
+  const p = n.payload ?? {};
+  const actor = actorName(p);
   switch (n.type) {
     case "friend_request":
-      return { text: "sent you a friend request", icon: UserPlus, href: "/friends" };
+      return {
+        actor,
+        text: "sent you a friend request",
+        icon: UserPlus,
+        href: "/friends",
+      };
     case "friend_request_accepted":
-      return { text: "accepted your friend request", icon: Users, href: "/friends" };
+      return {
+        actor,
+        text: "accepted your friend request",
+        icon: Users,
+        href: profileHref({
+          username: p.username as string | null,
+          publicUid: p.publicUid as string | null,
+        }),
+      };
+    case "buddy_paired":
+      return {
+        actor,
+        text: "paired with you as a study buddy",
+        icon: Users,
+        href: "/leaderboard",
+      };
     case "buddy_studied":
-      return { text: "your study buddy studied today", icon: Check, href: "/feed" };
+      return {
+        actor,
+        text: "studied today — your +20% XP bonus is active",
+        icon: Check,
+        href: "/feed",
+      };
+    case "achievement_unlocked":
+      return {
+        actor,
+        text: "unlocked an achievement",
+        icon: Award,
+        href: "/feed",
+      };
     default:
-      return { text: "New activity", icon: Bell, href: "/feed" };
+      return { actor: "StudyTime", text: "New activity", icon: Bell, href: "/feed" };
   }
 }
 
@@ -89,7 +139,9 @@ export function NotificationBell() {
     setOpen(next);
     if (next && unread > 0) {
       await markNotificationsRead();
-      setItems((prev) => prev.map((i) => ({ ...i, readAt: i.readAt ?? new Date().toISOString() })));
+      setItems((prev) =>
+        prev.map((i) => ({ ...i, readAt: i.readAt ?? new Date().toISOString() })),
+      );
     }
   };
 
@@ -116,7 +168,7 @@ export function NotificationBell() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -4, scale: 0.98 }}
             transition={{ duration: 0.16 }}
-            className="glass-card absolute right-0 top-11 z-50 w-72 overflow-hidden p-0"
+            className="glass-card absolute right-0 top-11 z-50 w-80 overflow-hidden p-0"
           >
             <div className="border-b border-[var(--cc-border)] px-3 py-2 text-xs font-semibold text-text">
               Notifications
@@ -129,7 +181,7 @@ export function NotificationBell() {
               ) : (
                 <ul>
                   {items.map((n) => {
-                    const { text, icon: Icon, href } = label(n);
+                    const { actor, text, icon: Icon, href } = label(n);
                     return (
                       <li key={n.id}>
                         <Link
@@ -142,7 +194,8 @@ export function NotificationBell() {
                           </span>
                           <span className="min-w-0 flex-1">
                             <span className="block text-xs text-text">
-                              Someone {text}
+                              <span className="font-semibold">{actor}</span>{" "}
+                              <span className="text-muted">{text}</span>
                             </span>
                             <span className="block text-[10px] text-muted">
                               {timeAgo(n.createdAt)}
