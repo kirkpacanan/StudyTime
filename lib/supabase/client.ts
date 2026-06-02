@@ -1,4 +1,5 @@
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { createBrowserClient } from "@supabase/ssr";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   assertBrowserSafeSupabaseKey,
   getSupabasePublicKey,
@@ -40,12 +41,8 @@ export function getSupabaseBrowser(): SupabaseClient {
     );
   }
 
-  browserClient = createClient(url, key, {
-    auth: {
-      persistSession: true,
-      autoRefreshToken: true,
-      detectSessionInUrl: true,
-    },
-  });
+  // createBrowserClient persists the session in cookies (not just localStorage)
+  // so Next.js middleware / server components can read it for route protection.
+  browserClient = createBrowserClient(url, key);
   return browserClient;
 }

@@ -2,11 +2,14 @@
 
 import { useAuth } from "@/hooks/useAuth";
 import { useSessionLive } from "@/contexts/session-live-context";
+import { usePresence } from "@/contexts/presence-context";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { NotificationBell } from "@/components/social/NotificationBell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AnimatePresence, motion } from "framer-motion";
-import { LogOut } from "lucide-react";
+import { LogOut, Users } from "lucide-react";
+import Link from "next/link";
 import type { FocusSampleState } from "@/lib/types";
 
 function stateLabel(s: FocusSampleState | null) {
@@ -21,6 +24,7 @@ function stateLabel(s: FocusSampleState | null) {
 export function Topbar() {
   const { user, signOut } = useAuth();
   const { live } = useSessionLive();
+  const { studyingCount } = usePresence();
 
   return (
     <motion.header
@@ -34,6 +38,18 @@ export function Topbar() {
         <p className="truncate text-xs text-muted">{user?.email}</p>
       </div>
       <div className="flex items-center gap-2">
+        {studyingCount > 0 ? (
+          <Link
+            href="/friends"
+            className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/40 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-500/20 dark:text-emerald-300"
+            title="Friends studying now"
+          >
+            <Users className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">{studyingCount} studying</span>
+            <span className="sm:hidden">{studyingCount}</span>
+          </Link>
+        ) : null}
+        <NotificationBell />
         <ThemeToggle variant="inline" />
         <AnimatePresence mode="wait">
           {live.running ? (

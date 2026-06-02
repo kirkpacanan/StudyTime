@@ -1,4 +1,5 @@
 import { AuthProvider } from "@/contexts/auth-context";
+import { PresenceProvider } from "@/contexts/presence-context";
 import { ProgressionProvider } from "@/contexts/progression-context";
 import { SessionLiveProvider } from "@/contexts/session-live-context";
 import { ThemeProvider } from "@/contexts/theme-context";
@@ -42,7 +43,9 @@ export default function RootLayout({
         <ThemeProvider>
           <AuthProvider>
             <ProgressionProvider>
-              <SessionLiveProvider>{children}</SessionLiveProvider>
+              <SessionLiveProvider>
+                <PresenceProvider>{children}</PresenceProvider>
+              </SessionLiveProvider>
             </ProgressionProvider>
           </AuthProvider>
         </ThemeProvider>

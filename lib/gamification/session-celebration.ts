@@ -19,6 +19,7 @@ import {
   applySessionProgression,
   type ProgressionResult,
 } from "./progression-service";
+import { emitActivity } from "@/lib/social/feed-service";
 import {
   currentYearMonth,
   sessionFocusPoints,
@@ -100,6 +101,37 @@ export async function computeSessionCelebration(
     });
   } catch {
     progression = null;
+  }
+
+  // Broadcast session highlights to friends' feeds (best-effort, server-trusted).
+  if (isSupabaseEnabled()) {
+    const focusMinutes = Math.round(latestSession.focusMs / 60000);
+    void emitActivity("session_completed", {
+      objectType: "session",
+      objectId: latestSession.id,
+      metadata: {
+        focusMinutes,
+        averageFocus: latestSession.averageFocus,
+      },
+    });
+    if (progression) {
+      if (progression.leveledUp) {
+        void emitActivity("level_up", {
+          metadata: { level: progression.newLevel },
+        });
+      }
+      for (const m of progression.streakMilestones) {
+        void emitActivity("streak_milestone", {
+          metadata: { streak: m.days ?? progression.streak.current },
+        });
+      }
+      for (const a of progression.newAchievements) {
+        void emitActivity("achievement_unlocked", {
+          objectType: "achievement",
+          objectId: a.id,
+        });
+      }
+    }
   }
 
   const pointsEarned = sessionFocusPoints(latestSession);

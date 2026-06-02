@@ -15,6 +15,7 @@ import {
   saveLoadout,
   unpairBuddy,
 } from "@/lib/gamification/progression-storage";
+import { emitActivity } from "@/lib/social/feed-service";
 import {
   createContext,
   useCallback,
@@ -136,7 +137,10 @@ export function ProgressionProvider({
     async (buddyId: string) => {
       if (!userId) return { ok: false, error: "Not signed in." };
       const res = await pairBuddy(userId, buddyId.trim());
-      if (res.ok) await refresh();
+      if (res.ok) {
+        void emitActivity("buddy_paired", { objectType: "user", objectId: buddyId.trim() });
+        await refresh();
+      }
       return res;
     },
     [userId, refresh],

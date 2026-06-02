@@ -18,6 +18,7 @@ import {
 import { RANKS, earnedRankTitles, nextRankForLevel } from "@/lib/gamification/ranks";
 import { achievementIcon } from "@/components/gamification/icons";
 import { PlayerAvatar } from "@/components/gamification/PlayerAvatar";
+import { ProfileIdentityStrip } from "@/components/social/ProfileIdentityStrip";
 import { RankChip } from "@/components/gamification/RankChip";
 import {
   PrestigeCelebration,
@@ -465,6 +466,7 @@ export default function ProfilePage() {
                     </span>
                   )}
                 </div>
+                <ProfileIdentityStrip />
               </div>
               <button
                 type="button"

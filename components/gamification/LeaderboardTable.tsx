@@ -7,8 +7,38 @@ import { rankForLevel, RANKS } from "@/lib/gamification/ranks";
 import { PlayerAvatar } from "./PlayerAvatar";
 import { RankChip } from "./RankChip";
 import { achievementIcon } from "./icons";
+import { isSupabaseEnabled } from "@/lib/supabase/config";
 import { motion } from "framer-motion";
+import Link from "next/link";
 import { useEffect, useRef } from "react";
+
+/** Links a leaderboard entry to the user's public profile (cloud mode only). */
+function ProfileLink({
+  userId,
+  isCurrentUser,
+  children,
+}: {
+  userId: string;
+  isCurrentUser: boolean;
+  children: React.ReactNode;
+}) {
+  const className = "flex min-w-0 items-center gap-3";
+  if (isCurrentUser) {
+    return (
+      <Link href="/profile" className={className}>
+        {children}
+      </Link>
+    );
+  }
+  if (!isSupabaseEnabled()) {
+    return <div className={className}>{children}</div>;
+  }
+  return (
+    <Link href={`/u/${userId}`} className={cn(className, "transition hover:opacity-80")}>
+      {children}
+    </Link>
+  );
+}
 
 function RankBadge({ rank }: { rank: number }) {
   const tone =
@@ -75,30 +105,32 @@ function Row({
     >
       <RankBadge rank={row.rank} />
       <div className="flex min-w-0 items-center gap-3">
-        <PlayerAvatar
-          avatarId={row.avatarId ?? undefined}
-          frameId={row.frameId ?? undefined}
-          seed={row.id + row.name}
-          size={40}
-        />
-        <div className="min-w-0">
-          <span
-            className={cn(
-              "flex items-center gap-2 truncate font-medium",
-              row.isCurrentUser ? "text-primary dark:text-cyan-200" : "text-text",
-            )}
-          >
-            <span className="truncate">{row.name}</span>
-            {row.isCurrentUser ? (
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-primary dark:text-cyan-300">
-                You
-              </span>
-            ) : null}
-          </span>
-          <div className="mt-0.5 flex items-center gap-2">
-            <RankChip rank={rankDef} level={row.level} prestige={row.prestige} />
+        <ProfileLink userId={row.id} isCurrentUser={row.isCurrentUser}>
+          <PlayerAvatar
+            avatarId={row.avatarId ?? undefined}
+            frameId={row.frameId ?? undefined}
+            seed={row.id + row.name}
+            size={40}
+          />
+          <div className="min-w-0">
+            <span
+              className={cn(
+                "flex items-center gap-2 truncate font-medium",
+                row.isCurrentUser ? "text-primary dark:text-cyan-200" : "text-text",
+              )}
+            >
+              <span className="truncate">{row.name}</span>
+              {row.isCurrentUser ? (
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-primary dark:text-cyan-300">
+                  You
+                </span>
+              ) : null}
+            </span>
+            <div className="mt-0.5 flex items-center gap-2">
+              <RankChip rank={rankDef} level={row.level} prestige={row.prestige} />
+            </div>
           </div>
-        </div>
+        </ProfileLink>
       </div>
       <PinnedBadges ids={row.pinnedBadges} />
       <div className="text-right">

@@ -99,6 +99,12 @@ export async function signIn(
     return { ok: true, user: mapSupabaseUser(data.user) };
   }
 
+  // Local/demo auth is for development only. In production builds it must not
+  // be a usable login path — require a real (Supabase) account instead.
+  if (process.env.NODE_ENV === "production") {
+    return { ok: false, error: supabaseRequiredMessage() };
+  }
+
   const users = getUsers();
   const user = users.find((u) => u.email === normalized);
   if (!user) return { ok: false, error: "Invalid email or password." };

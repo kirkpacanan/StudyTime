@@ -432,14 +432,16 @@ export async function getBuddy(userId: string): Promise<BuddyState | null> {
     if (!data) return null;
     const buddyId =
       data.user_a === userId ? (data.user_b as string) : (data.user_a as string);
-    const { data: prof } = await supabase
-      .from("profiles")
-      .select("name")
-      .eq("id", buddyId)
-      .maybeSingle();
+    // profiles is RLS-restricted to own rows; resolve the buddy's display name
+    // through the SECURITY DEFINER RPC instead of reading profiles directly.
+    const { data: display } = await supabase.rpc("resolve_user_display", {
+      p_user_id: buddyId,
+    });
+    const buddyName =
+      (display as { displayName?: string } | null)?.displayName || "Study buddy";
     return {
       buddyId,
-      buddyName: (prof?.name as string) || "Study buddy",
+      buddyName,
       status: data.status as BuddyState["status"],
     };
   }
@@ -456,12 +458,10 @@ export async function pairBuddy(
   }
   if (isSupabaseEnabled()) {
     const supabase = getSupabaseBrowser();
-    const { data: prof } = await supabase
-      .from("profiles")
-      .select("id")
-      .eq("id", buddyId)
-      .maybeSingle();
-    if (!prof) return { ok: false, error: "No user found with that ID." };
+    const { data: display } = await supabase.rpc("resolve_user_display", {
+      p_user_id: buddyId,
+    });
+    if (!display) return { ok: false, error: "No user found with that ID." };
     const [a, b] = [userId, buddyId].sort();
     const { error } = await supabase.from("study_buddies").upsert(
       { user_a: a, user_b: b, status: "active" },

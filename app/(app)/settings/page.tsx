@@ -3,6 +3,7 @@
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { PrivacySettingsCard } from "@/components/social/PrivacySettingsCard";
 import { useAuth } from "@/hooks/useAuth";
 import { getSettings, saveSettings } from "@/lib/storage";
 import { DEFAULT_SETTINGS, type UserSettings } from "@/lib/types";
@@ -194,6 +195,8 @@ export default function SettingsPage() {
           <span className="text-sm text-success">Saved.</span>
         ) : null}
       </div>
+
+      <PrivacySettingsCard />
     </div>
   );
 }
