@@ -2,11 +2,12 @@ import {
   ACHIEVEMENTS,
   type AchievementId,
 } from "./gamification/achievements";
-import { grantAchievements, saveXpState } from "./gamification/progression-storage";
+import { grantAchievements, saveStreakState, saveXpState } from "./gamification/progression-storage";
 import { MAX_LEVEL, totalXpToReachLevel } from "./gamification/ranks";
 import { digestHex, randomSalt } from "./password";
 import {
   appendSession,
+  getSessionsForUser,
   getUsers,
   isBootstrapped,
   saveSettings,
@@ -36,7 +37,32 @@ export function demoMaxXpState() {
 
 const ALL_ACHIEVEMENT_IDS = Object.keys(ACHIEVEMENTS) as AchievementId[];
 
-/** Sync demo to Lv 50 + all achievements when using Supabase. */
+/** Last 7 days of realistic sessions for dashboard + reports charts. */
+async function seedDemoCloudSessions(userId: string): Promise<void> {
+  const existing = await getSessionsForUser(userId);
+  if (existing.length > 0) return;
+
+  await saveSettings(userId, { ...DEFAULT_SETTINGS });
+
+  for (let d = 0; d < 7; d++) {
+    const sessionsPerDay = Math.floor(randomBetween(1, 3.99));
+    for (let i = 0; i < sessionsPerDay; i++) {
+      await appendSession(makeSession(userId, d, i));
+    }
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  await saveStreakState(userId, {
+    current: 7,
+    longest: 7,
+    lastStudyDate: today.toISOString().slice(0, 10),
+    freezeTokens: 0,
+    claimedMilestones: [],
+  });
+}
+
+/** Lv 50, achievements, and sample sessions when using Supabase. */
 export async function seedDemoCloudProfile(userId: string): Promise<void> {
   if (typeof window === "undefined") return;
   const { isSupabaseEnabled } = await import("./supabase/config");
@@ -44,6 +70,7 @@ export async function seedDemoCloudProfile(userId: string): Promise<void> {
 
   await saveXpState(userId, demoMaxXpState());
   await grantAchievements(userId, ALL_ACHIEVEMENT_IDS);
+  await seedDemoCloudSessions(userId);
 }
 
 function randomBetween(min: number, max: number) {
