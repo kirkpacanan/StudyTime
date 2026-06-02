@@ -11,6 +11,11 @@ import {
 import { clearLeaderboardCache } from "./gamification/leaderboard-cache";
 import { getSupabaseBrowser } from "./supabase/client";
 import { isSupabaseEnabled, supabaseRequiredMessage } from "./supabase/config";
+import {
+  DEMO_EMAIL,
+  DEMO_PASSWORD,
+  isDemoCredentials,
+} from "./seed-demo";
 
 export type PublicUser = Omit<UserRecord, "passwordHash" | "salt">;
 
@@ -82,6 +87,54 @@ export async function signUp(
   };
 }
 
+/** Demo login when Supabase is on — recreates the account if the DB was wiped. */
+async function signInOrProvisionDemoSupabase(): Promise<
+  { ok: true; user: PublicUser } | { ok: false; error: string }
+> {
+  const supabase = getSupabaseBrowser();
+  const creds = { email: DEMO_EMAIL, password: DEMO_PASSWORD };
+
+  const attemptSignIn = () => supabase.auth.signInWithPassword(creds);
+
+  let { data, error } = await attemptSignIn();
+  if (!error && data.user) {
+    return { ok: true, user: mapSupabaseUser(data.user) };
+  }
+
+  const signUp = await supabase.auth.signUp({
+    ...creds,
+    options: { data: { name: "Demo Student" } },
+  });
+
+  if (signUp.error) {
+    const msg = signUp.error.message.toLowerCase();
+    if (msg.includes("already") || msg.includes("registered")) {
+      const retry = await attemptSignIn();
+      if (!retry.error && retry.data.user) {
+        return { ok: true, user: mapSupabaseUser(retry.data.user) };
+      }
+      if (retry.error) return { ok: false, error: retry.error.message };
+    }
+    return { ok: false, error: signUp.error.message };
+  }
+
+  if (signUp.data.session && signUp.data.user) {
+    return { ok: true, user: mapSupabaseUser(signUp.data.user) };
+  }
+
+  const retry = await attemptSignIn();
+  if (!retry.error && retry.data.user) {
+    return { ok: true, user: mapSupabaseUser(retry.data.user) };
+  }
+
+  return {
+    ok: false,
+    error:
+      retry.error?.message ??
+      "Demo account was created but sign-in failed. In Supabase → Authentication → Email, turn off “Confirm email”, then try again.",
+  };
+}
+
 export async function signIn(
   email: string,
   password: string,
@@ -89,6 +142,9 @@ export async function signIn(
   const normalized = email.trim().toLowerCase();
 
   if (isSupabaseEnabled()) {
+    if (isDemoCredentials(normalized, password)) {
+      return signInOrProvisionDemoSupabase();
+    }
     const supabase = getSupabaseBrowser();
     const { data, error } = await supabase.auth.signInWithPassword({
       email: normalized,

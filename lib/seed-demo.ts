@@ -10,8 +10,14 @@ import {
 import type { FocusSampleState, StudySession, UserRecord } from "./types";
 import { DEFAULT_SETTINGS } from "./types";
 
-const DEMO_EMAIL = "demo@studytime.app";
-const DEMO_PASSWORD = "demo1234";
+export const DEMO_EMAIL = "demo@studytime.app";
+export const DEMO_PASSWORD = "demo1234";
+
+export function isDemoCredentials(email: string, password: string): boolean {
+  return (
+    email.trim().toLowerCase() === DEMO_EMAIL && password === DEMO_PASSWORD
+  );
+}
 
 // Max-level XP for Study GOAT (level 50).
 // Computed from: sum_{l=1}^{49} (300 + (l-1)*225) = 279 300.
