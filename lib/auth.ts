@@ -15,6 +15,7 @@ import {
   DEMO_EMAIL,
   DEMO_PASSWORD,
   isDemoCredentials,
+  seedDemoCloudProfile,
 } from "./seed-demo";
 
 export type PublicUser = Omit<UserRecord, "passwordHash" | "salt">;
@@ -87,6 +88,13 @@ export async function signUp(
   };
 }
 
+async function finishDemoSupabaseSignIn(
+  user: Parameters<typeof mapSupabaseUser>[0],
+): Promise<{ ok: true; user: PublicUser }> {
+  await seedDemoCloudProfile(user.id);
+  return { ok: true, user: mapSupabaseUser(user) };
+}
+
 /** Demo login when Supabase is on — recreates the account if the DB was wiped. */
 async function signInOrProvisionDemoSupabase(): Promise<
   { ok: true; user: PublicUser } | { ok: false; error: string }
@@ -98,7 +106,7 @@ async function signInOrProvisionDemoSupabase(): Promise<
 
   let { data, error } = await attemptSignIn();
   if (!error && data.user) {
-    return { ok: true, user: mapSupabaseUser(data.user) };
+    return finishDemoSupabaseSignIn(data.user);
   }
 
   const signUp = await supabase.auth.signUp({
@@ -111,7 +119,7 @@ async function signInOrProvisionDemoSupabase(): Promise<
     if (msg.includes("already") || msg.includes("registered")) {
       const retry = await attemptSignIn();
       if (!retry.error && retry.data.user) {
-        return { ok: true, user: mapSupabaseUser(retry.data.user) };
+        return finishDemoSupabaseSignIn(retry.data.user);
       }
       if (retry.error) return { ok: false, error: retry.error.message };
     }
@@ -119,12 +127,12 @@ async function signInOrProvisionDemoSupabase(): Promise<
   }
 
   if (signUp.data.session && signUp.data.user) {
-    return { ok: true, user: mapSupabaseUser(signUp.data.user) };
+    return finishDemoSupabaseSignIn(signUp.data.user);
   }
 
   const retry = await attemptSignIn();
   if (!retry.error && retry.data.user) {
-    return { ok: true, user: mapSupabaseUser(retry.data.user) };
+    return finishDemoSupabaseSignIn(retry.data.user);
   }
 
   return {

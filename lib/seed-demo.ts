@@ -1,3 +1,9 @@
+import {
+  ACHIEVEMENTS,
+  type AchievementId,
+} from "./gamification/achievements";
+import { grantAchievements, saveXpState } from "./gamification/progression-storage";
+import { MAX_LEVEL, totalXpToReachLevel } from "./gamification/ranks";
 import { digestHex, randomSalt } from "./password";
 import {
   appendSession,
@@ -19,29 +25,26 @@ export function isDemoCredentials(email: string, password: string): boolean {
   );
 }
 
-// Max-level XP for Study GOAT (level 50).
-// Computed from: sum_{l=1}^{49} (300 + (l-1)*225) = 279 300.
-// Keep in sync with ranks.ts xpForLevel / totalXpToReachLevel formulas.
-const DEMO_MAX_XP = 279_300;
-const DEMO_MAX_LEVEL = 50;
+/** Study GOAT — level 50, prestige 0 (matches ranks.ts curve). */
+export function demoMaxXpState() {
+  return {
+    xp: totalXpToReachLevel(MAX_LEVEL),
+    level: MAX_LEVEL,
+    prestige: 0,
+  };
+}
 
-// All achievement IDs — mirrors AchievementId union in achievements.ts.
-// Keep in sync when new achievements are added.
-const ALL_ACHIEVEMENT_IDS = [
-  "focus_master",
-  "streak_7",
-  "top_100_global",
-  "night_owl",
-  "deep_focus_champion",
-  "monthly_top_performer",
-  "iron_focus",
-  "streak_14",
-  "streak_30",
-  "speed_demon",
-  "early_bird",
-  "buddy_bond",
-  "weekend_warrior",
-] as const;
+const ALL_ACHIEVEMENT_IDS = Object.keys(ACHIEVEMENTS) as AchievementId[];
+
+/** Sync demo to Lv 50 + all achievements when using Supabase. */
+export async function seedDemoCloudProfile(userId: string): Promise<void> {
+  if (typeof window === "undefined") return;
+  const { isSupabaseEnabled } = await import("./supabase/config");
+  if (!isSupabaseEnabled()) return;
+
+  await saveXpState(userId, demoMaxXpState());
+  await grantAchievements(userId, ALL_ACHIEVEMENT_IDS);
+}
 
 function randomBetween(min: number, max: number) {
   return min + Math.random() * (max - min);
@@ -143,11 +146,8 @@ export async function seedDemoData(): Promise<void> {
     : null;
   const currentLevel = storedState?.level ?? 1;
   const currentPrestige = storedState?.prestige ?? 0;
-  if (currentLevel < DEMO_MAX_LEVEL || currentPrestige !== 0) {
-    localStorage.setItem(
-      xpKey,
-      JSON.stringify({ xp: DEMO_MAX_XP, level: DEMO_MAX_LEVEL, prestige: 0 }),
-    );
+  if (currentLevel < MAX_LEVEL || currentPrestige !== 0) {
+    localStorage.setItem(xpKey, JSON.stringify(demoMaxXpState()));
   }
 
   // ── 3. Unlock all achievements ─────────────────────────────────────────────
