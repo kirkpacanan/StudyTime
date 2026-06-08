@@ -1,3 +1,8 @@
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
 /** @type {import('next').NextConfig} */
 const supabaseUrl =
   process.env.NEXT_PUBLIC_SUPABASE_URL ??
@@ -23,14 +28,28 @@ const nextConfig = {
   experimental: {
     optimizePackageImports: ["lucide-react", "framer-motion", "recharts"],
   },
-  transpilePackages: ["@vladmandic/face-api", "@mediapipe/tasks-vision"],
-  // Next.js 16 uses Turbopack by default; we still have a custom `webpack` hook
-  // below, so provide an explicit Turbopack config to silence the error:
-  // "webpack config and no turbopack config".
+  // Force Next.js to transpile these packages through its own bundler so they
+  // all share the same React instance (fixes "ReactCurrentOwner" crash when
+  // @react-three/fiber's its-fine dependency accesses React fiber internals).
+  transpilePackages: [
+    "@vladmandic/face-api",
+    "@mediapipe/tasks-vision",
+    "@react-three/fiber",
+    "@react-three/drei",
+    "three",
+  ],
   turbopack: {},
   webpack: (config, { isServer }) => {
     config.resolve.alias.canvas = false;
+
     if (!isServer) {
+      // Ensure all packages resolve to the same React instance (package directory,
+      // not the entry file — so sub-path imports like react/jsx-runtime still work).
+      // Prevents "Cannot read properties of undefined (reading 'ReactCurrentOwner')"
+      // caused by R3F/its-fine accessing React fiber internals from a different copy.
+      config.resolve.alias["react"] = path.resolve(__dirname, "node_modules/react");
+      config.resolve.alias["react-dom"] = path.resolve(__dirname, "node_modules/react-dom");
+
       config.resolve.fallback = {
         ...config.resolve.fallback,
         fs: false,
