@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { Clock, BookOpen, ChevronRight, Sparkles, Check, ArrowLeft, X } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useSessionLive } from "@/contexts/session-live-context";
@@ -16,8 +16,17 @@ import type { FocusFrameResult } from "@/lib/focus-detection";
 import { getSettings } from "@/lib/storage";
 import type { FocusSample, SessionEvent, UserSettings } from "@/lib/types";
 import { cn } from "@/lib/cn";
+import { SessionEnterOverlay } from "@/components/library/SessionEnterOverlay";
 import { SessionPanelsLayer } from "@/components/library/SessionPanelsLayer";
 import { SessionTopBar } from "@/components/library/SessionTopBar";
+import {
+  SESSION_EASE,
+  sessionPanelsEnter,
+  sessionSceneEnter,
+  sessionTopBarEnter,
+  sessionWelcomeContainer,
+  sessionWelcomeItem,
+} from "@/lib/library/session-motion";
 import {
   LibraryIconButton,
   LibraryPanelHeader,
@@ -137,13 +146,31 @@ function fmt(sec: number): string {
 }
 
 function LibraryLoadingScreen() {
+  const reduce = useReducedMotion();
   return (
-    <div className="flex h-screen w-screen flex-col items-center justify-center gap-4 bg-[#1a1206]">
-      <div className="library-glass-panel flex h-16 w-16 items-center justify-center">
+    <motion.div
+      className="flex h-screen w-screen flex-col items-center justify-center gap-4 bg-[#1a1206]"
+      initial={reduce ? false : { opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.35, ease: SESSION_EASE }}
+    >
+      <motion.div
+        className="library-glass-panel flex h-16 w-16 items-center justify-center"
+        initial={reduce ? false : { opacity: 0, scale: 0.88 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.6, delay: 0.08, ease: SESSION_EASE }}
+      >
         <BookOpen className="h-8 w-8 animate-pulse text-amber-300" />
-      </div>
-      <p className="text-sm text-slate-300">Loading virtual library…</p>
-    </div>
+      </motion.div>
+      <motion.p
+        className="text-sm text-slate-300"
+        initial={reduce ? false : { opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, delay: 0.16, ease: SESSION_EASE }}
+      >
+        Loading virtual library…
+      </motion.p>
+    </motion.div>
   );
 }
 
@@ -155,6 +182,7 @@ const DURATION_OPTIONS = [
 ];
 
 export default function SessionPage() {
+  const reduce = useReducedMotion();
   const router = useRouter();
   const { user } = useAuth();
   const { setLive, resetLive } = useSessionLive();
@@ -496,8 +524,15 @@ export default function SessionPage() {
 
   return (
     <div className="fixed inset-0 z-50 bg-[#1a1206]">
+      <SessionEnterOverlay />
+
       {/* 3D Library Scene — full screen */}
-      <div className="absolute inset-0">
+      <motion.div
+        className="absolute inset-0"
+        initial={reduce ? false : sessionSceneEnter.initial}
+        animate={sessionSceneEnter.animate}
+        transition={reduce ? { duration: 0.01 } : sessionSceneEnter.transition}
+      >
         <LibraryScene
           flowState={flowState}
           myAvatarUrl={avatarUrl}
@@ -514,14 +549,21 @@ export default function SessionPage() {
           userName={user.name ?? "You"}
           userId={user.id}
         />
-      </div>
+      </motion.div>
 
       {/* === Top bar: room info + dashboard exit === */}
       {!showAvatarCreator && !summary && (
-        <SessionTopBar
-          studyingCount={studyingCount + 1}
-          onExit={leaveToDashboard}
-        />
+        <motion.div
+          className="absolute inset-x-0 top-0"
+          initial={reduce ? false : sessionTopBarEnter.initial}
+          animate={sessionTopBarEnter.animate}
+          transition={reduce ? { duration: 0.01 } : sessionTopBarEnter.transition}
+        >
+          <SessionTopBar
+            studyingCount={studyingCount + 1}
+            onExit={leaveToDashboard}
+          />
+        </motion.div>
       )}
 
       {/* === Avatar Creator (full-screen, new users only) === */}
@@ -539,16 +581,34 @@ export default function SessionPage() {
         {flowState === "entering" && (
           <motion.div
             key="entering"
-            initial={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.6 }}
+            initial={reduce ? false : { opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0, scale: 0.98, y: -6 }}
+            transition={{ duration: 0.65, ease: SESSION_EASE }}
             className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3"
           >
-            <div className="library-glass-panel border-amber-500/20 px-8 py-6 text-center">
-              <BookOpen className="mx-auto mb-3 h-10 w-10 text-amber-300" />
-              <h1 className="text-2xl font-bold text-slate-50">Virtual Library</h1>
-              <p className="mt-1 text-sm text-slate-300">Find a seat and start your focus session</p>
-            </div>
+            <motion.div
+              className="library-glass-panel border-amber-500/20 px-8 py-6 text-center"
+              variants={sessionWelcomeContainer}
+              initial="initial"
+              animate="animate"
+            >
+              <motion.div variants={sessionWelcomeItem}>
+                <BookOpen className="mx-auto mb-3 h-10 w-10 text-amber-300" />
+              </motion.div>
+              <motion.h1
+                variants={sessionWelcomeItem}
+                className="text-2xl font-bold text-slate-50"
+              >
+                Virtual Library
+              </motion.h1>
+              <motion.p
+                variants={sessionWelcomeItem}
+                className="mt-1 text-sm text-slate-300"
+              >
+                Find a seat and start your focus session
+              </motion.p>
+            </motion.div>
           </motion.div>
         )}
 
@@ -689,9 +749,12 @@ export default function SessionPage() {
 
       {/* STUDYING — floating panels above the 3D scene */}
       {flowState === "studying" && running && (
-        <div
+        <motion.div
           ref={panelsLayerRef}
           className="pointer-events-none absolute inset-0 z-30"
+          initial={reduce ? false : sessionPanelsEnter.initial}
+          animate={sessionPanelsEnter.animate}
+          transition={reduce ? { duration: 0.01 } : sessionPanelsEnter.transition}
         >
           <SessionPanelsLayer
             webcamEnabled={webcamEnabled}
@@ -714,7 +777,7 @@ export default function SessionPage() {
             eyesClosedMs={eyesClosedMs}
             alarmRunning={alarmRunning}
           />
-        </div>
+        </motion.div>
       )}
 
       {/* Session summary celebration */}

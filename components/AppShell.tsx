@@ -2,13 +2,14 @@
 
 import { AppBackdrop } from "@/components/AppBackdrop";
 import { PageTransition } from "@/components/PageTransition";
+import { SessionNavFlash } from "@/components/SessionNavFlash";
 import { StudyTimeLogo } from "@/components/StudyTimeLogo";
 import { useAuth } from "@/hooks/useAuth";
 import { useApplyTheme } from "@/hooks/useApplyTheme";
 import { Sidebar } from "@/components/Sidebar";
 import { Topbar } from "@/components/Topbar";
 import { motion, useReducedMotion } from "framer-motion";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 
 function Splash() {
@@ -53,6 +54,9 @@ function Splash() {
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, ready } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
+  const isSession =
+    pathname === "/session" || pathname.startsWith("/session/");
   useApplyTheme();
 
   useEffect(() => {
@@ -62,8 +66,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   if (!ready) return <Splash />;
   if (!user) return null;
 
+  if (isSession) {
+    return (
+      <>
+        <SessionNavFlash />
+        <PageTransition>{children}</PageTransition>
+      </>
+    );
+  }
+
   return (
     <>
+      <SessionNavFlash />
       <AppBackdrop />
       <div className="relative z-0 flex min-h-screen">
         <Sidebar />
