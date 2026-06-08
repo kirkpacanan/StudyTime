@@ -1,6 +1,7 @@
 "use client";
 
 import { Input } from "@/components/ui/input";
+import { ModalBackdrop, ModalRoot } from "@/components/ui/modal-portal";
 import { searchUsers } from "@/lib/social/profile-service";
 import {
   listFriendRequests,
@@ -151,24 +152,35 @@ export function SearchModal({
     setBusyId(null);
   }
 
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [open]);
+
   return (
-    <AnimatePresence>
-      {open ? (
-        <motion.div
-          className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 pt-20 backdrop-blur-sm"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          onClick={onClose}
-        >
+    <ModalRoot>
+      <AnimatePresence>
+        {open ? (
           <motion.div
-            className="glass-card w-full max-w-lg overflow-hidden p-0"
-            initial={{ opacity: 0, y: -12, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -8, scale: 0.98 }}
-            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-            onClick={(e) => e.stopPropagation()}
+            key="search-modal"
+            className="fixed inset-0 z-[100] flex min-h-[100dvh] w-full items-start justify-center p-4 pt-20"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
           >
+            <ModalBackdrop label="Close search" onClick={onClose} />
+            <motion.div
+              className="glass-card relative z-10 w-full max-w-lg overflow-hidden p-0"
+              initial={{ opacity: 0, y: -12, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.98 }}
+              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+              onClick={(e) => e.stopPropagation()}
+            >
             <div className="flex items-center gap-2 border-b border-[var(--cc-border)] px-4 py-3">
               <Search className="h-4 w-4 text-muted" />
               <Input
@@ -245,9 +257,10 @@ export function SearchModal({
                 </ul>
               )}
             </div>
+            </motion.div>
           </motion.div>
-        </motion.div>
-      ) : null}
-    </AnimatePresence>
+        ) : null}
+      </AnimatePresence>
+    </ModalRoot>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/cn";
+import { ModalBackdrop, ModalRoot } from "@/components/ui/modal-portal";
 import { AnimatePresence, motion } from "framer-motion";
 import { Check, Star } from "lucide-react";
 import { useEffect } from "react";
@@ -37,34 +38,40 @@ export function PrestigeConfirmModal({
     return () => window.removeEventListener("keydown", handler);
   }, [open, busy, onCancel]);
 
-  return (
-    <AnimatePresence>
-      {open && (
-        <motion.div
-          key="prestige-confirm-overlay"
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.18 }}
-        >
-          {/* Backdrop */}
-          <motion.div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={!busy ? onCancel : undefined}
-          />
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [open]);
 
-          {/* Dialog */}
+  return (
+    <ModalRoot>
+      <AnimatePresence>
+        {open && (
           <motion.div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="prestige-dialog-title"
-            className="relative z-10 w-full max-w-sm overflow-hidden rounded-2xl border border-white/20 bg-white/85 shadow-2xl backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/85"
-            initial={{ scale: 0.88, opacity: 0, y: 24 }}
-            animate={{ scale: 1, opacity: 1, y: 0 }}
-            exit={{ scale: 0.88, opacity: 0, y: 24 }}
-            transition={{ type: "spring", stiffness: 340, damping: 28 }}
+            key="prestige-confirm-overlay"
+            className="fixed inset-0 z-[100] flex min-h-[100dvh] w-full items-center justify-center p-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
           >
+            <ModalBackdrop onClick={!busy ? onCancel : undefined} />
+
+            {/* Dialog */}
+            <motion.div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="prestige-dialog-title"
+              className="relative z-10 w-full max-w-sm overflow-hidden rounded-2xl border border-white/20 bg-white/85 shadow-2xl backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/85"
+              initial={{ scale: 0.88, opacity: 0, y: 24 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.88, opacity: 0, y: 24 }}
+              transition={{ type: "spring", stiffness: 340, damping: 28 }}
+            >
             {/* Amber top bar */}
             <div className="h-1 w-full bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500" />
 
@@ -181,10 +188,11 @@ export function PrestigeConfirmModal({
                 </button>
               </div>
             </div>
+            </motion.div>
           </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+        )}
+      </AnimatePresence>
+    </ModalRoot>
   );
 }
 
@@ -230,23 +238,36 @@ export function PrestigeCelebration({
     return () => window.removeEventListener("keydown", handler);
   }, [show, onDismiss]);
 
+  useEffect(() => {
+    if (!show) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [show]);
+
   return (
-    <AnimatePresence>
-      {show && (
-        <motion.div
-          key="prestige-celebration"
-          className="fixed inset-0 z-[60] flex cursor-pointer items-center justify-center"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.3 }}
-          onClick={onDismiss}
-          role="status"
-          aria-live="polite"
-          aria-label={`Prestige ${newPrestige} achieved — click to dismiss`}
-        >
-          {/* Dark blur backdrop */}
-          <div className="absolute inset-0 bg-black/78 backdrop-blur-md" />
+    <ModalRoot>
+      <AnimatePresence>
+        {show && (
+          <motion.div
+            key="prestige-celebration"
+            className="fixed inset-0 z-[100] flex min-h-[100dvh] w-full cursor-pointer items-center justify-center"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            onClick={onDismiss}
+            role="status"
+            aria-live="polite"
+            aria-label={`Prestige ${newPrestige} achieved — click to dismiss`}
+          >
+            <ModalBackdrop
+              className="bg-black/78 dark:bg-black/80"
+              label={`Prestige ${newPrestige} achieved — click to dismiss`}
+              onClick={onDismiss}
+            />
 
           {/* Star particles */}
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
@@ -396,8 +417,9 @@ export function PrestigeCelebration({
               Tap anywhere to dismiss
             </motion.p>
           </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </ModalRoot>
   );
 }

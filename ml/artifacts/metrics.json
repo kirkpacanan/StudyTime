@@ -1,0 +1,71 @@
+{
+  "accuracy": 0.8244514106583072,
+  "confusion_matrix": {
+    "labels": [
+      "Low",
+      "Medium",
+      "High"
+    ],
+    "matrix": [
+      [
+        116,
+        18,
+        0
+      ],
+      [
+        28,
+        132,
+        1
+      ],
+      [
+        0,
+        9,
+        15
+      ]
+    ]
+  },
+  "classification_report": {
+    "Low": {
+      "precision": 0.8055555555555556,
+      "recall": 0.8656716417910447,
+      "f1-score": 0.8345323741007195,
+      "support": 134.0
+    },
+    "Medium": {
+      "precision": 0.8301886792452831,
+      "recall": 0.8198757763975155,
+      "f1-score": 0.825,
+      "support": 161.0
+    },
+    "High": {
+      "precision": 0.9375,
+      "recall": 0.625,
+      "f1-score": 0.75,
+      "support": 24.0
+    },
+    "accuracy": 0.8244514106583072,
+    "macro avg": {
+      "precision": 0.8577480782669462,
+      "recall": 0.7701824727295201,
+      "f1-score": 0.8031774580335731,
+      "support": 319.0
+    },
+    "weighted avg": {
+      "precision": 0.8279148018900785,
+      "recall": 0.8244514106583072,
+      "f1-score": 0.8233615615344715,
+      "support": 319.0
+    }
+  },
+  "feature_importance": {
+    "prev_session_focus_score": 0.3060745059467582,
+    "phone_detections": 0.15555821110419446,
+    "session_duration": 0.11395161488607085,
+    "hour_of_day": 0.1078679386703903,
+    "streak_length": 0.0996912346791372,
+    "distraction_events": 0.09549122647732751,
+    "day_of_week": 0.061723619225087664,
+    "drowsiness_count": 0.05964164901103381
+  },
+  "n_test": 319
+}

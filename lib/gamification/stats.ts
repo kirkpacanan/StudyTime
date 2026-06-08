@@ -1,4 +1,8 @@
 import type { StudySession } from "@/lib/types";
+import {
+  calendarDayKey,
+  daysBetweenCalendarDays,
+} from "./streaks";
 
 function startOfDay(d: Date) {
   const x = new Date(d);
@@ -50,22 +54,27 @@ export function currentYearMonth(): string {
 }
 
 /**
- * Consecutive calendar days with ≥1 focus session (focusMs > 0).
- * If no session today, streak can still count from yesterday backward.
+ * Consecutive calendar days with ≥1 focus session (focusMs > 0), ending on the
+ * most recent study day. Returns 0 if that day was more than one calendar day
+ * ago (skipped a day) or if the run has a gap in the middle.
  */
 export function computeStudyStreak(sessions: StudySession[]): number {
   const days = new Set<string>();
   for (const s of sessions) {
     if (s.focusMs <= 0) continue;
-    days.add(dateKey(new Date(s.startedAt)));
+    days.add(calendarDayKey(new Date(s.startedAt)));
   }
-  const today = startOfDay(new Date());
-  const cursor = new Date(today);
-  if (!days.has(dateKey(cursor))) {
-    cursor.setDate(cursor.getDate() - 1);
-  }
+  if (days.size === 0) return 0;
+
+  const todayKey = calendarDayKey(new Date());
+  const sorted = [...days].sort();
+  const lastKey = sorted[sorted.length - 1]!;
+
+  if (daysBetweenCalendarDays(lastKey, todayKey) > 1) return 0;
+
   let streak = 0;
-  while (days.has(dateKey(cursor))) {
+  const cursor = new Date(`${lastKey}T00:00:00`);
+  while (days.has(calendarDayKey(cursor))) {
     streak++;
     cursor.setDate(cursor.getDate() - 1);
   }

@@ -2,6 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { ModalBackdrop, ModalPortal } from "@/components/ui/modal-portal";
 import { playCelebrationChime } from "@/lib/gamification/sounds";
 import type { SessionCelebrationPayload } from "@/lib/gamification/session-celebration";
 import { RankChip } from "@/components/gamification/RankChip";
@@ -100,19 +101,14 @@ export function SessionSummaryCelebration({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="session-summary-title"
-    >
-      <button
-        type="button"
-        className="absolute inset-0 bg-slate-950/60 backdrop-blur-md dark:bg-black/65"
-        aria-label="Close summary"
-        onClick={onClose}
-      />
-      <Card className="relative z-10 max-h-[min(92vh,880px)] w-full max-w-lg overflow-hidden shadow-2xl ring-1 ring-cyan-500/20 dark:ring-cyan-400/15">
+    <ModalPortal className="p-4">
+      <ModalBackdrop label="Close summary" onClick={onClose} />
+      <Card
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="session-summary-title"
+        className="relative z-10 max-h-[min(92vh,880px)] w-full max-w-lg overflow-hidden shadow-2xl ring-1 ring-cyan-500/20 dark:ring-cyan-400/15"
+      >
         <ConfettiBurst active={showParty} />
         <button
           type="button"
@@ -329,7 +325,7 @@ export function SessionSummaryCelebration({
           </div>
         </div>
       </Card>
-    </div>
+    </ModalPortal>
   );
 }
 

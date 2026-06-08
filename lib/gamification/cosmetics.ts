@@ -293,3 +293,22 @@ export function entitledCosmeticIds(level: number, prestige: number): string[] {
     (c) => c.id,
   );
 }
+
+/** Whether a cosmetic is usable (permanently owned or currently entitled). */
+export function isCosmeticAccessible(
+  c: CosmeticDef,
+  ownedCosmetics: Iterable<string>,
+  level: number,
+  prestige: number,
+): boolean {
+  for (const id of ownedCosmetics) {
+    if (id === c.id) return true;
+  }
+  return isCosmeticUnlocked(c, level, prestige);
+}
+
+/** Count valid catalog cosmetics in the ownership record. */
+export function countOwnedCosmetics(ownedCosmetics: string[]): number {
+  const owned = new Set(ownedCosmetics);
+  return COSMETICS.filter((c) => owned.has(c.id)).length;
+}

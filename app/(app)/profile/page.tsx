@@ -11,7 +11,8 @@ import {
 import {
   cosmeticUnlockLabel,
   cosmeticsByType,
-  isCosmeticUnlocked,
+  countOwnedCosmetics,
+  isCosmeticAccessible,
   type CosmeticDef,
   type CosmeticType,
 } from "@/lib/gamification/cosmetics";
@@ -136,24 +137,19 @@ export default function ProfilePage() {
     void getSessionsForUser(user.id).then(setSessions);
   }, [user]);
 
-  // Bio / status editing
+  // Bio editing
   const [editingBio, setEditingBio] = useState(false);
   const [bioDraft, setBioDraft] = useState("");
-  const [statusDraft, setStatusDraft] = useState("");
   const bioRef = useRef<HTMLTextAreaElement>(null);
 
   const openBioEdit = () => {
     setBioDraft(snapshot?.loadout.bio ?? "");
-    setStatusDraft(snapshot?.loadout.status ?? "Locked in");
     setEditingBio(true);
     setTimeout(() => bioRef.current?.focus(), 50);
   };
 
   const saveBio = async () => {
-    await updateLoadout({
-      bio: bioDraft.trim(),
-      status: statusDraft.trim() || "Locked in",
-    });
+    await updateLoadout({ bio: bioDraft.trim() });
     setEditingBio(false);
   };
 
@@ -178,7 +174,6 @@ export default function ProfilePage() {
   const displayRank = loadout.titleId
     ? (RANKS.find((r) => r.slug === loadout.titleId) ?? rank)
     : rank;
-  const ownedSet = new Set(ownedCosmetics);
   const canPrestige = progress.level >= 50;
 
   // Computed stats
@@ -191,7 +186,6 @@ export default function ProfilePage() {
   const unlockedSet = new Set(achievements);
   const pinnedBadges = loadout.pinnedBadges;
   const bio = loadout.bio || "";
-  const status = loadout.status || "Locked in";
 
   // Group achievements by category
   const achievementsByCategory = ACHIEVEMENT_IDS.reduce<
@@ -204,7 +198,8 @@ export default function ProfilePage() {
   }, {});
 
   const isUnlocked = (c: CosmeticDef) =>
-    ownedSet.has(c.id) || isCosmeticUnlocked(c, progress.level, prestigeLevel);
+    isCosmeticAccessible(c, ownedCosmetics, progress.level, prestigeLevel);
+  const ownedCosmeticCount = countOwnedCosmetics(ownedCosmetics);
 
   const equippedId = (type: CosmeticType) =>
     type === "avatar"
@@ -498,19 +493,6 @@ export default function ProfilePage() {
                     {bioDraft.length}/160
                   </p>
                 </div>
-                <div>
-                  <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-muted">
-                    Status
-                  </label>
-                  <input
-                    type="text"
-                    value={statusDraft}
-                    onChange={(e) => setStatusDraft(e.target.value)}
-                    maxLength={60}
-                    placeholder="e.g. Locked in, Grinding finals…"
-                    className="w-full rounded-xl border border-white/45 bg-white/40 px-3 py-2 text-sm text-text placeholder:text-muted/60 focus:outline-none focus:ring-2 focus:ring-primary/40 dark:border-white/15 dark:bg-white/[0.07]"
-                  />
-                </div>
                 <div className="flex gap-2">
                   <button
                     type="button"
@@ -530,18 +512,12 @@ export default function ProfilePage() {
                   </button>
                 </div>
               </div>
+            ) : bio ? (
+              <p className="mt-2.5 text-sm text-text/80 leading-relaxed">{bio}</p>
             ) : (
-              <div className="mt-2.5 space-y-1">
-                {bio ? (
-                  <p className="text-sm text-text/80 leading-relaxed">{bio}</p>
-                ) : (
-                  <p className="text-sm italic text-muted/60">No bio yet — click the pencil to add one.</p>
-                )}
-                <p className="flex items-center gap-1.5 text-xs text-muted">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_4px_#34d399]" />
-                  {status}
-                </p>
-              </div>
+              <p className="mt-2.5 text-sm italic text-muted/60">
+                No bio yet — click the pencil to add one.
+              </p>
             )}
 
             {/* Pinned badges */}
@@ -763,7 +739,7 @@ export default function ProfilePage() {
             <Sparkles className="h-4 w-4 text-primary" />
             <h2 className="font-semibold text-text">Customize</h2>
             <span className="text-xs text-muted">
-              {ownedCosmetics.length} cosmetics owned
+              {ownedCosmeticCount} cosmetics owned
             </span>
           </div>
           {showCustomize ? (

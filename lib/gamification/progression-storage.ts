@@ -18,7 +18,7 @@ import {
   type UserXpState,
 } from "./profile";
 import type { Quest, QuestScope } from "./quests";
-import { DEFAULT_STREAK, type StreakState } from "./streaks";
+import { DEFAULT_STREAK, resolveStreakState, type StreakState } from "./streaks";
 
 const KEY = {
   xp: (u: string) => `studytime_xp_${u}`,
@@ -272,6 +272,7 @@ export async function grantAchievements(
 // ----------------------------------------------------------------------------
 
 export async function getStreakState(userId: string): Promise<StreakState> {
+  let raw: StreakState;
   if (isSupabaseEnabled()) {
     const supabase = getSupabaseBrowser();
     const { data } = await supabase
@@ -280,18 +281,25 @@ export async function getStreakState(userId: string): Promise<StreakState> {
       .eq("user_id", userId)
       .maybeSingle();
     if (!data) return { ...DEFAULT_STREAK };
-    return {
+    raw = {
       current: Number(data.current_streak ?? 0),
       longest: Number(data.longest_streak ?? 0),
       lastStudyDate: (data.last_study_date as string | null) ?? null,
       freezeTokens: Number(data.freeze_tokens ?? 0),
       claimedMilestones: (data.claimed_milestones ?? []) as number[],
     };
+  } else {
+    const store = ls();
+    raw = parse<StreakState>(store?.getItem(KEY.streak(userId)) ?? null, {
+      ...DEFAULT_STREAK,
+    });
   }
-  const store = ls();
-  return parse<StreakState>(store?.getItem(KEY.streak(userId)) ?? null, {
-    ...DEFAULT_STREAK,
-  });
+
+  const resolved = resolveStreakState(raw);
+  if (resolved.current !== raw.current) {
+    await saveStreakState(userId, resolved);
+  }
+  return resolved;
 }
 
 export async function saveStreakState(

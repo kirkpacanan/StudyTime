@@ -11,11 +11,13 @@ import {
 import {
   cosmeticUnlockLabel,
   cosmeticsByType,
-  isCosmeticUnlocked,
+  countOwnedCosmetics,
+  isCosmeticAccessible,
   type CosmeticDef,
   type CosmeticType,
 } from "@/lib/gamification/cosmetics";
 import { RANKS, earnedRankTitles } from "@/lib/gamification/ranks";
+import { ModalBackdrop, ModalPortal } from "@/components/ui/modal-portal";
 import { achievementIcon } from "./icons";
 import { PlayerAvatar } from "./PlayerAvatar";
 import { motion } from "framer-motion";
@@ -60,11 +62,11 @@ export function ProfileCustomizerModal({ onClose }: { onClose: () => void }) {
   const seed = user.id + (user.name || "Student");
   const { loadout, ownedCosmetics, achievements, progress, prestige: prestigeLevel } =
     snapshot;
-  const ownedSet = new Set(ownedCosmetics);
   const canPrestige = progress.level >= 50;
+  const ownedCosmeticCount = countOwnedCosmetics(ownedCosmetics);
 
   const isUnlocked = (c: CosmeticDef) =>
-    ownedSet.has(c.id) || isCosmeticUnlocked(c, progress.level, prestigeLevel);
+    isCosmeticAccessible(c, ownedCosmetics, progress.level, prestigeLevel);
 
   const equippedId = (type: CosmeticType) =>
     type === "avatar"
@@ -280,19 +282,12 @@ export function ProfileCustomizerModal({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Customize profile"
-    >
-      <button
-        type="button"
-        className="absolute inset-0 bg-slate-950/55 backdrop-blur-sm dark:bg-black/65"
-        aria-label="Close"
-        onClick={onClose}
-      />
+    <ModalPortal className="p-4">
+      <ModalBackdrop label="Close customize profile" onClick={onClose} />
       <motion.div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Customize profile"
         initial={{ opacity: 0, scale: 0.96, y: 12 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         transition={{ type: "spring", stiffness: 320, damping: 26 }}
@@ -312,7 +307,7 @@ export function ProfileCustomizerModal({ onClose }: { onClose: () => void }) {
                 Customize profile
               </h2>
               <p className="text-xs text-muted">
-                Level {progress.level} · {ownedCosmetics.length} cosmetics owned
+                Level {progress.level} · {ownedCosmeticCount} cosmetics owned
               </p>
             </div>
           </div>
@@ -376,6 +371,6 @@ export function ProfileCustomizerModal({ onClose }: { onClose: () => void }) {
           </div>
         ) : null}
       </motion.div>
-    </div>
+    </ModalPortal>
   );
 }

@@ -99,16 +99,22 @@ export type ProgressionSnapshot = {
 export async function loadProgressionSnapshot(
   userId: string,
 ): Promise<ProgressionSnapshot> {
-  const [xpState, loadout, ownedCosmetics, achievements, streak, buddy, sessions] =
+  const [xpState, loadout, achievements, streak, buddy, sessions] =
     await Promise.all([
       getXpState(userId),
       getLoadout(userId),
-      getOwnedCosmetics(userId),
       getUnlockedAchievementIds(userId),
       getStreakState(userId),
       getBuddy(userId),
       getSessionsForUser(userId),
     ]);
+
+  // Backfill ownership rows for any cosmetics already earned at this progression.
+  await grantCosmetics(
+    userId,
+    entitledCosmeticIds(xpState.level, xpState.prestige),
+  );
+  const ownedCosmetics = await getOwnedCosmetics(userId);
 
   const dKey = dailyPeriodKey();
   const wKey = weeklyPeriodKey();
@@ -313,6 +319,13 @@ export async function performPrestige(
   if (xpState.level < 50) {
     return { ok: false, prestige: xpState.prestige, error: "Reach Level 50 to prestige." };
   }
+
+  // Freeze permanent ownership before level resets so cosmetics stay usable.
+  await grantCosmetics(
+    userId,
+    entitledCosmeticIds(xpState.level, xpState.prestige),
+  );
+
   const next: UserXpState = {
     xp: 0,
     level: 1,

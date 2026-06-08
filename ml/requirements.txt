@@ -1,0 +1,12 @@
+# StudyTime — Focus Prediction (offline training / evaluation only).
+#
+# These packages are DEV-ONLY. They are never imported by the Next.js app and add
+# zero weight to the deployed bundle: the browser/server runtime uses a tiny
+# pure-TypeScript Random Forest evaluator (lib/ml/focus-prediction.ts) that reads
+# the exported model JSON. scikit-learn is unavoidable here because the capstone
+# brief explicitly requires RandomForestClassifier, train_test_split and joblib.
+scikit-learn>=1.4
+pandas>=2.0
+numpy>=1.26
+matplotlib>=3.7
+joblib>=1.3

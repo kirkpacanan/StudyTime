@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/social/UserAvatar";
 import { RelationshipBadge } from "@/components/social/RelationshipBadge";
 import { RankChip } from "@/components/gamification/RankChip";
-import { achievementIcon } from "@/components/gamification/icons";
+import { PinnedAchievementBadge } from "@/components/gamification/PinnedAchievementBadge";
 import { ACHIEVEMENTS, type AchievementId } from "@/lib/gamification/achievements";
 import { rankForLevel } from "@/lib/gamification/ranks";
 import { getPublicProfile } from "@/lib/social/profile-service";
@@ -385,11 +385,6 @@ export default function PublicProfilePage() {
                 Paired {timeAgo(card.studyBuddy.pairedSince)}
               </p>
             </div>
-            {isYourBuddy ? (
-              <span className="shrink-0 rounded-lg border border-emerald-400/40 bg-emerald-500/10 px-2 py-1 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">
-                Your buddy
-              </span>
-            ) : null}
           </div>
         </Card>
       ) : null}
@@ -414,19 +409,9 @@ export default function PublicProfilePage() {
         <Card>
           <h2 className="text-sm font-semibold text-text">Pinned badges</h2>
           <div className="mt-3 flex flex-wrap gap-2">
-            {pinned.map((id) => {
-              const def = ACHIEVEMENTS[id];
-              const Icon = achievementIcon(def.icon);
-              return (
-                <span
-                  key={id}
-                  title={def.description}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-amber-400/40 bg-amber-500/15 px-2.5 py-1.5 text-xs font-semibold text-amber-700 dark:text-amber-300"
-                >
-                  <Icon className="h-3.5 w-3.5" /> {def.title}
-                </span>
-              );
-            })}
+            {pinned.map((id) => (
+              <PinnedAchievementBadge key={id} id={id} showTitle />
+            ))}
           </div>
         </Card>
       ) : null}

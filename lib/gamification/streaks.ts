@@ -35,7 +35,7 @@ export const STREAK_MILESTONES: StreakMilestone[] = [
   { days: 30, rewardXp: 700, freezeTokens: 2, label: "30-day streak" },
 ];
 
-function dayKey(d: Date): string {
+export function calendarDayKey(d: Date): string {
   const x = new Date(d);
   x.setHours(0, 0, 0, 0);
   const y = x.getFullYear();
@@ -44,10 +44,18 @@ function dayKey(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-function daysBetween(aKey: string, bKey: string): number {
+export function daysBetweenCalendarDays(aKey: string, bKey: string): number {
   const a = new Date(`${aKey}T00:00:00`);
   const b = new Date(`${bKey}T00:00:00`);
   return Math.round((b.getTime() - a.getTime()) / 86_400_000);
+}
+
+function dayKey(d: Date): string {
+  return calendarDayKey(d);
+}
+
+function daysBetween(aKey: string, bKey: string): number {
+  return daysBetweenCalendarDays(aKey, bKey);
 }
 
 export type StreakUpdate = {
@@ -120,6 +128,25 @@ export function registerStudyDay(
   }
 
   return { state, advanced, freezeUsed, reset, milestones, bounceBack };
+}
+
+/**
+ * Zero `current` when too many calendar days have passed since the last study
+ * day (same gap rules as registerStudyDay, evaluated at read time).
+ */
+export function resolveStreakState(
+  state: StreakState,
+  today: Date = new Date(),
+): StreakState {
+  if (!state.lastStudyDate || state.current <= 0) {
+    return state.current === 0 ? state : { ...state, current: 0 };
+  }
+
+  const gap = daysBetween(state.lastStudyDate, dayKey(today));
+  if (gap <= 1) return state;
+  if (gap === 2 && state.freezeTokens > 0) return state;
+
+  return { ...state, current: 0 };
 }
 
 /** Next milestone the user is working toward (null once all are claimed). */

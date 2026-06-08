@@ -5,7 +5,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useProgression } from "@/contexts/progression-context";
 import { ACHIEVEMENTS } from "@/lib/gamification/achievements";
 import { RANKS, nextRankForLevel } from "@/lib/gamification/ranks";
-import { achievementIcon } from "./icons";
+import { PinnedAchievementBadge } from "./PinnedAchievementBadge";
 import { PlayerAvatar } from "./PlayerAvatar";
 import { RankChip } from "./RankChip";
 import { Sparkles } from "lucide-react";
@@ -100,28 +100,24 @@ export function ProfilePanel() {
           <div className="mt-2.5 flex items-center gap-2">
             {[0, 1, 2].map((i) => {
               const id = pinned[i];
-              const def = id ? ACHIEVEMENTS[id] : null;
-              const Icon = def ? achievementIcon(def.icon) : null;
+              if (id && id in ACHIEVEMENTS) {
+                return <PinnedAchievementBadge key={id} id={id} size="lg" />;
+              }
               return (
                 <div
                   key={i}
-                  title={def?.title ?? "Pin a badge"}
-                  className={cn(
-                    "flex h-8 w-8 items-center justify-center rounded-lg border",
-                    def
-                      ? "border-amber-400/40 bg-amber-500/15 text-amber-600 dark:text-amber-300"
-                      : "border-dashed border-white/40 bg-white/10 text-muted/50 dark:border-white/10",
-                  )}
+                  title="Pin a badge"
+                  className="flex h-8 w-8 items-center justify-center rounded-lg border border-dashed border-white/40 bg-white/10 text-muted/50 dark:border-white/10"
                 >
-                  {Icon ? <Icon className="h-4 w-4" /> : <Sparkles className="h-3.5 w-3.5" />}
+                  <Sparkles className="h-3.5 w-3.5" />
                 </div>
               );
             })}
             <Link
               href="/profile"
-              className="ml-auto rounded-lg border border-white/45 bg-white/30 px-2.5 py-1.5 text-[11px] font-semibold text-text transition hover:bg-white/50 dark:border-white/10 dark:bg-white/[0.06] dark:hover:bg-white/[0.12]"
+              className="ml-auto inline-flex items-center justify-center rounded-lg border border-white/45 bg-white/30 px-2.5 py-1.5 text-center text-[11px] font-semibold text-text transition hover:bg-white/50 dark:border-white/10 dark:bg-white/[0.06] dark:hover:bg-white/[0.12]"
             >
-              View Profile
+              Profile
             </Link>
           </div>
         </div>

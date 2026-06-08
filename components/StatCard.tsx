@@ -1,6 +1,6 @@
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/cn";
-import type { LucideIcon } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, Minus, type LucideIcon } from "lucide-react";
 
 const accentTop: Record<"blue" | "green" | "yellow" | "muted", string> = {
   blue: "from-primary via-sky-500 to-primary",
@@ -18,6 +18,53 @@ const iconSurface: Record<"blue" | "green" | "yellow" | "muted", string> = {
   muted: "bg-muted/12 text-muted ring-muted/20",
 };
 
+/**
+ * Optional period-over-period trend shown under the value.
+ * `value` is a signed percent change (null = no comparable baseline).
+ * `goodDirection` flips the color semantics for metrics where down is good
+ * (e.g. distractions): "up" (default) treats increases as positive.
+ */
+export type StatTrend = {
+  value: number | null;
+  label?: string;
+  goodDirection?: "up" | "down";
+};
+
+function TrendLine({ trend }: { trend: StatTrend }) {
+  if (trend.value === null) {
+    return (
+      <p className="mt-2 flex items-center gap-1 text-xs font-medium text-muted">
+        <Minus className="h-3.5 w-3.5" aria-hidden />
+        No prior data{trend.label ? ` · ${trend.label}` : ""}
+      </p>
+    );
+  }
+
+  const rounded = Math.round(trend.value);
+  const isFlat = rounded === 0;
+  const isUp = rounded > 0;
+  const good = (trend.goodDirection ?? "up") === "up" ? isUp : !isUp;
+  const tone = isFlat
+    ? "text-muted"
+    : good
+      ? "text-success"
+      : "text-alert";
+  const Icon = isFlat ? Minus : isUp ? ArrowUpRight : ArrowDownRight;
+
+  return (
+    <p className={cn("mt-2 flex items-center gap-1 text-xs font-medium", tone)}>
+      <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />
+      <span className="tabular-nums">
+        {isUp ? "+" : ""}
+        {rounded}%
+      </span>
+      {trend.label ? (
+        <span className="text-muted">{trend.label}</span>
+      ) : null}
+    </p>
+  );
+}
+
 /** One layout for all KPI tiles: equal min height, type scale, and icon frame. */
 export function StatCard({
   title,
@@ -25,12 +72,14 @@ export function StatCard({
   hint,
   icon: Icon,
   accent = "blue",
+  trend,
 }: {
   title: string;
   value: string;
   hint?: string;
   icon: LucideIcon;
   accent?: "blue" | "green" | "yellow" | "muted";
+  trend?: StatTrend;
 }) {
   return (
     <Card
@@ -68,6 +117,7 @@ export function StatCard({
           <p className="mt-3 break-words text-3xl font-semibold tabular-nums tracking-tight text-text [overflow-wrap:anywhere]">
             {value}
           </p>
+          {trend ? <TrendLine trend={trend} /> : null}
           {hint ? (
             <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-muted">
               {hint}

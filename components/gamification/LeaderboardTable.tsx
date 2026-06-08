@@ -4,9 +4,9 @@ import { cn } from "@/lib/cn";
 import type { LeaderboardRow } from "@/lib/gamification/leaderboard";
 import { ACHIEVEMENTS, type AchievementId } from "@/lib/gamification/achievements";
 import { rankForLevel, RANKS } from "@/lib/gamification/ranks";
+import { PinnedAchievementBadge } from "./PinnedAchievementBadge";
 import { PlayerAvatar } from "./PlayerAvatar";
 import { RankChip } from "./RankChip";
-import { achievementIcon } from "./icons";
 import { isSupabaseEnabled } from "@/lib/supabase/config";
 import { motion } from "framer-motion";
 import Link from "next/link";
@@ -66,19 +66,9 @@ function PinnedBadges({ ids }: { ids: string[] }) {
   if (valid.length === 0) return null;
   return (
     <div className="hidden items-center gap-1 lg:flex">
-      {valid.map((id) => {
-        const def = ACHIEVEMENTS[id];
-        const Icon = achievementIcon(def.icon);
-        return (
-          <span
-            key={id}
-            title={def.title}
-            className="flex h-6 w-6 items-center justify-center rounded-md border border-amber-400/40 bg-amber-500/15 text-amber-600 dark:text-amber-300"
-          >
-            <Icon className="h-3 w-3" />
-          </span>
-        );
-      })}
+      {valid.map((id) => (
+        <PinnedAchievementBadge key={id} id={id} size="sm" />
+      ))}
     </div>
   );
 }
