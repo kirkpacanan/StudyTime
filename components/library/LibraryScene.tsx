@@ -1,13 +1,17 @@
 "use client";
 
-import { Suspense, useCallback, useRef } from "react";
+import { Suspense, useCallback, useMemo, useRef } from "react";
 import { Canvas } from "@react-three/fiber";
-import { OrbitControls, PerspectiveCamera } from "@react-three/drei";
+import { OrbitControls, PerspectiveCamera, ContactShadows } from "@react-three/drei";
 import { LibraryEnvironment, StudyChair } from "./LibraryEnvironment";
 import { SeatMarker } from "./SeatMarker";
-import { Avatar } from "./Avatar";
+import { BlockyAvatar } from "./BlockyAvatar";
 import { OtherUserAvatar } from "./OtherUserAvatar";
-import { LIBRARY_SEATS } from "@/lib/library/seats";
+import { AVATAR_SPAWN, LIBRARY_SEATS, getSeatAvatarPosition } from "@/lib/library/seats";
+import {
+  blockyAvatarFromSeed,
+  parseBlockyAvatar,
+} from "@/lib/library/blocky-avatar";
 import type { LibraryFlowState, LibraryPeer } from "@/hooks/useLibraryPresence";
 import * as THREE from "three";
 
@@ -20,22 +24,8 @@ type LibrarySceneProps = {
   peers: Map<string, LibraryPeer>;
   onSeatClick: (seatId: string) => void;
   userName: string;
+  userId: string;
 };
-
-function FallbackAvatar({ position }: { position: [number, number, number] }) {
-  return (
-    <group position={position}>
-      <mesh castShadow position={[0, 0.9, 0]}>
-        <capsuleGeometry args={[0.25, 0.8, 8, 16]} />
-        <meshStandardMaterial color="#6366f1" roughness={0.7} />
-      </mesh>
-      <mesh castShadow position={[0, 1.85, 0]}>
-        <sphereGeometry args={[0.22, 16, 16]} />
-        <meshStandardMaterial color="#f4c99e" roughness={0.8} />
-      </mesh>
-    </group>
-  );
-}
 
 export function LibraryScene({
   flowState,
@@ -46,6 +36,7 @@ export function LibraryScene({
   peers,
   onSeatClick,
   userName,
+  userId,
 }: LibrarySceneProps) {
   const controlsRef = useRef<React.ComponentRef<typeof OrbitControls>>(null);
 
@@ -55,49 +46,70 @@ export function LibraryScene({
   if (mySeatId) occupiedSeatIds.add(mySeatId);
 
   const mySeat = LIBRARY_SEATS.find((s) => s.id === mySeatId);
+  const avatarTarget = mySeat ? getSeatAvatarPosition(mySeat) : AVATAR_SPAWN;
+  const avatarRotation = mySeat?.rotation ?? Math.PI / 2;
+
+  const myBlockyConfig = useMemo(
+    () => parseBlockyAvatar(myAvatarUrl) ?? blockyAvatarFromSeed(userId),
+    [myAvatarUrl, userId],
+  );
 
   const handleSeatClick = useCallback(
     (seatId: string) => {
-      if (flowState === "seat_select" || flowState === "duration_select") {
-        onSeatClick(seatId);
-      }
+      if (flowState === "seat_select") onSeatClick(seatId);
     },
     [flowState, onSeatClick],
   );
 
+  const showStatusBadge =
+    flowState === "studying" || flowState === "session_end";
+
+  const renderLocalAvatar = flowState !== "entering";
+
   return (
     <Canvas
       shadows
-      gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.1 }}
+      gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.15 }}
       style={{ width: "100%", height: "100%", background: "#1a1206" }}
     >
-      <PerspectiveCamera makeDefault position={[1, 8, 14]} fov={55} near={0.1} far={200} />
+      <color attach="background" args={["#1a1206"]} />
+      <fog attach="fog" args={["#1a1206", 18, 45]} />
+
+      <PerspectiveCamera makeDefault position={[1, 12, 9]} fov={58} near={0.1} far={80} />
 
       <OrbitControls
         ref={controlsRef}
         enablePan={false}
         minDistance={8}
-        maxDistance={22}
-        minPolarAngle={Math.PI / 6}
-        maxPolarAngle={Math.PI / 2.2}
-        target={[1, 0.5, 0]}
+        maxDistance={24}
+        minPolarAngle={0.12}
+        maxPolarAngle={Math.PI / 2.15}
+        target={[1, 0.3, 0]}
       />
 
       <Suspense fallback={null}>
         <LibraryEnvironment />
 
-        {/* Seat markers + chairs */}
+        <ContactShadows
+          position={[1, 0.01, 0]}
+          opacity={0.45}
+          scale={28}
+          blur={2.5}
+          far={6}
+          color="#3d2b1a"
+        />
+
         {LIBRARY_SEATS.map((seat) => {
           const isOccupied = occupiedSeatIds.has(seat.id);
           const isMySeat = seat.id === mySeatId;
           return (
             <group key={seat.id}>
               <StudyChair position={seat.position} rotation={seat.rotation} />
-              {!isMySeat && (
+              {!isMySeat && flowState === "seat_select" && (
                 <SeatMarker
                   seat={seat}
                   occupied={isOccupied}
-                  selectable={flowState === "seat_select" || flowState === "duration_select"}
+                  selectable={!isOccupied}
                   onClick={() => handleSeatClick(seat.id)}
                 />
               )}
@@ -105,26 +117,19 @@ export function LibraryScene({
           );
         })}
 
-        {/* Local user avatar */}
-        {mySeat && (
-          myAvatarUrl ? (
-            <Avatar
-              avatarUrl={myAvatarUrl}
-              targetPosition={mySeat.position}
-              targetRotation={mySeat.rotation}
-              status={myStatus}
-              focusScore={myFocusScore}
-              displayName={userName}
-              isLocalUser
-            />
-          ) : (
-            <group>
-              <FallbackAvatar position={mySeat.position} />
-            </group>
-          )
+        {renderLocalAvatar && (
+          <BlockyAvatar
+            config={myBlockyConfig}
+            spawnPosition={AVATAR_SPAWN}
+            targetPosition={avatarTarget}
+            targetRotation={avatarRotation}
+            status={myStatus}
+            focusScore={myFocusScore}
+            displayName={userName}
+            showStatusBadge={showStatusBadge}
+          />
         )}
 
-        {/* Peer avatars */}
         {[...peers.values()].map((peer) => {
           const peerSeat = peer.seatId
             ? LIBRARY_SEATS.find((s) => s.id === peer.seatId)
@@ -134,8 +139,9 @@ export function LibraryScene({
             <OtherUserAvatar
               key={peer.userId}
               peer={peer}
-              seatPosition={peerSeat.position}
+              seatPosition={getSeatAvatarPosition(peerSeat)}
               seatRotation={peerSeat.rotation}
+              showStatusBadge={showStatusBadge}
             />
           );
         })}

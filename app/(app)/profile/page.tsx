@@ -46,9 +46,17 @@ import {
   Target,
   Trophy,
   X,
+  UserRound,
   Zap,
 } from "lucide-react";
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { loadAvatarUrl } from "@/lib/library/persist-avatar";
+
+const AvatarCreator = dynamic(
+  () => import("@/components/library/AvatarCreator").then((m) => m.AvatarCreator),
+  { ssr: false },
+);
 
 type CustomizeTab = "avatars" | "frames" | "themes" | "badges" | "titles";
 
@@ -123,6 +131,10 @@ export default function ProfilePage() {
   const [customizeTab, setCustomizeTab] = useState<CustomizeTab>("avatars");
   const [showCustomize, setShowCustomize] = useState(false);
 
+  // 3D library avatar (Ready Player Me)
+  const [libraryAvatarUrl, setLibraryAvatarUrl] = useState<string | null>(null);
+  const [showLibraryAvatarCreator, setShowLibraryAvatarCreator] = useState(false);
+
   // Prestige flow
   const [showPrestigeConfirm, setShowPrestigeConfirm] = useState(false);
   const [prestigeBusy, setPrestigeBusy] = useState(false);
@@ -135,6 +147,12 @@ export default function ProfilePage() {
   useEffect(() => {
     if (!user) return;
     void getSessionsForUser(user.id).then(setSessions);
+  }, [user]);
+
+  // 3D library avatar URL
+  useEffect(() => {
+    if (!user) return;
+    void loadAvatarUrl(user.id).then(setLibraryAvatarUrl);
   }, [user]);
 
   // Bio editing
@@ -559,6 +577,30 @@ export default function ProfilePage() {
         </div>
       </div>
 
+      {/* ── Virtual library avatar (3D) ── */}
+      <div className="glass-card flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-4">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-indigo-500/15">
+            <UserRound className="h-7 w-7 text-indigo-500" />
+          </div>
+          <div>
+            <h2 className="font-semibold text-text">Library Avatar</h2>
+            <p className="mt-0.5 text-sm text-muted">
+              {libraryAvatarUrl
+                ? "Your blocky character appears in the study library."
+                : "Customize your blocky character for study sessions."}
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowLibraryAvatarCreator(true)}
+          className="shrink-0 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:opacity-90"
+        >
+          {libraryAvatarUrl ? "Change avatar" : "Create avatar"}
+        </button>
+      </div>
+
       {/* ── Stats row ── */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatCard
@@ -778,6 +820,19 @@ export default function ProfilePage() {
           </>
         )}
       </div>
+
+      {/* 3D avatar creator (profile — existing users) */}
+      {showLibraryAvatarCreator && (
+        <AvatarCreator
+          title={libraryAvatarUrl ? "Change your avatar" : "Create your avatar"}
+          subtitle="Pick colors for your blocky library character."
+          onAvatarSaved={(url) => {
+            setLibraryAvatarUrl(url);
+            setShowLibraryAvatarCreator(false);
+          }}
+          onClose={() => setShowLibraryAvatarCreator(false)}
+        />
+      )}
 
       {/* Modals */}
       <PrestigeConfirmModal

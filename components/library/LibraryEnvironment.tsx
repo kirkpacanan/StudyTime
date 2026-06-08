@@ -97,7 +97,8 @@ export function LibraryEnvironment() {
   return (
     <group>
       {/* === LIGHTING === */}
-      <ambientLight intensity={0.5} color="#f0e8d8" />
+      <hemisphereLight args={["#fff8ee", "#3d2b1a", 0.55]} />
+      <ambientLight intensity={0.35} color="#f0e8d8" />
       <directionalLight
         position={[4, 10, 4]}
         intensity={1.2}
@@ -112,17 +113,6 @@ export function LibraryEnvironment() {
         shadow-camera-bottom={-15}
         color="#ffe8c8"
       />
-      {/* Ceiling pendant lights */}
-      {[-5, 0, 5].map((x) => (
-        <group key={x}>
-          <pointLight position={[x, 4.5, 0]} intensity={1.5} distance={10} color="#fff3d6" />
-          <mesh position={[x, 4.8, 0]}>
-            <sphereGeometry args={[0.15, 8, 8]} />
-            <meshStandardMaterial color="#fffbe6" emissive="#ffe066" emissiveIntensity={1.5} />
-          </mesh>
-        </group>
-      ))}
-
       {/* === FLOOR === */}
       <mesh
         ref={floorRef}
@@ -131,23 +121,31 @@ export function LibraryEnvironment() {
         position={[1, 0, 0]}
       >
         <planeGeometry args={[30, 20]} />
-        <meshStandardMaterial color="#c8a96e" roughness={0.7} metalness={0.05} />
+        <meshStandardMaterial color="#b8976a" roughness={0.75} metalness={0.02} />
       </mesh>
 
-      {/* Floor planks pattern overlay */}
+      {/* Floor plank seams */}
       {Array.from({ length: 20 }).map((_, i) => (
         <mesh
           key={i}
           rotation={[-Math.PI / 2, 0, 0]}
           receiveShadow
-          position={[1, 0.001, -10 + i]}
+          position={[1, 0.002, -9.5 + i]}
         >
-          <planeGeometry args={[30, 0.02]} />
-          <meshStandardMaterial color="#b8976a" roughness={0.7} />
+          <planeGeometry args={[30, 0.015]} />
+          <meshStandardMaterial color="#9a7d55" roughness={0.8} />
         </mesh>
       ))}
 
       {/* === WALLS === */}
+      {/* Wainscoting panels on back wall */}
+      {[-10, -7, -4, -1, 2, 5, 8, 11].map((x) => (
+        <mesh key={`panel-${x}`} position={[x, 1.2, -9.88]} receiveShadow>
+          <boxGeometry args={[2.6, 2.2, 0.04]} />
+          <meshStandardMaterial color="#c9b896" roughness={0.85} />
+        </mesh>
+      ))}
+
       {/* Back wall */}
       <mesh position={[1, 2.5, -10]} receiveShadow>
         <boxGeometry args={[30, 5, 0.2]} />
@@ -168,12 +166,6 @@ export function LibraryEnvironment() {
         <boxGeometry args={[0.2, 5, 20]} />
         <meshStandardMaterial color="#cdbfa0" roughness={0.9} />
       </mesh>
-      {/* Ceiling */}
-      <mesh position={[1, 5, 0]} receiveShadow>
-        <boxGeometry args={[30, 0.15, 20]} />
-        <meshStandardMaterial color="#e8e0d0" roughness={1} />
-      </mesh>
-
       {/* === CROWN MOLDING === */}
       <mesh position={[1, 4.9, -9.9]}>
         <boxGeometry args={[30, 0.2, 0.2]} />
@@ -191,15 +183,21 @@ export function LibraryEnvironment() {
       ))}
 
       {/* === DECORATIVE ELEMENTS === */}
-      {/* Central rug */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[1, 0.002, 0]}>
-        <planeGeometry args={[18, 8]} />
-        <meshStandardMaterial color="#7c4f3a" roughness={0.95} />
-      </mesh>
-      {/* Rug border */}
+      {/* Central study rug */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[1, 0.003, 0]}>
-        <ringGeometry args={[8.5, 9, 4]} />
-        <meshStandardMaterial color="#5c3322" roughness={0.95} />
+        <planeGeometry args={[18, 8]} />
+        <meshStandardMaterial color="#6b3f2e" roughness={0.95} />
+      </mesh>
+      {/* Rug inner pattern */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[1, 0.004, 0]}>
+        <planeGeometry args={[14, 5.5]} />
+        <meshStandardMaterial color="#8b5540" roughness={0.92} />
+      </mesh>
+
+      {/* Entrance mat near spawn */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[-11, 0.003, 6]}>
+        <planeGeometry args={[3, 2.5]} />
+        <meshStandardMaterial color="#4a6741" roughness={0.95} />
       </mesh>
 
       {/* Corner plants */}
@@ -230,20 +228,21 @@ export function LibraryEnvironment() {
         </mesh>
       </group>
 
-      {/* Windows on left wall — light shafts */}
+      {/* Windows on left wall — light shafts (spotLight instead of rectAreaLight
+          to avoid needing RectAreaLightUniformsLib.init() which would otherwise
+          cause a "Cannot read properties of undefined (reading 'd')" crash) */}
       {[-3, 3].map((z) => (
         <group key={z}>
           <mesh position={[-13.8, 3, z]}>
             <boxGeometry args={[0.05, 1.8, 1.2]} />
             <meshStandardMaterial color="#cce8ff" transparent opacity={0.6} />
           </mesh>
-          <rectAreaLight
-            position={[-12, 3, z]}
-            rotation={[0, Math.PI / 2, 0]}
-            width={1.5}
-            height={2}
-            intensity={4}
+          <pointLight
+            position={[-11, 3, z]}
+            intensity={6}
             color="#d4eeff"
+            distance={20}
+            decay={2}
           />
         </group>
       ))}

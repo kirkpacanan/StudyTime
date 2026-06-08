@@ -199,6 +199,36 @@ body {
     backdrop-filter: blur(56px) saturate(2);
   }
 
+  /* Session library floating panels — shared glassmorphism */
+  .library-glass-panel {
+    @apply rounded-2xl border border-white/10 shadow-xl;
+    background: linear-gradient(
+      160deg,
+      rgba(51, 65, 85, 0.44) 0%,
+      rgba(15, 23, 42, 0.4) 48%,
+      rgba(30, 58, 95, 0.38) 100%
+    );
+    box-shadow:
+      0 1px 0 0 rgba(255, 255, 255, 0.12) inset,
+      0 0 0 1px rgba(0, 0, 0, 0.4),
+      0 12px 40px -8px rgba(0, 0, 0, 0.45),
+      0 0 72px -20px rgba(34, 211, 238, 0.1);
+    -webkit-backdrop-filter: blur(52px) saturate(1.9);
+    backdrop-filter: blur(52px) saturate(1.9);
+  }
+
+  .library-glass-header {
+    @apply border-b border-white/10 bg-white/[0.04] backdrop-blur-md;
+  }
+
+  .library-glass-footer {
+    @apply border-t border-white/10 bg-white/[0.03] px-3 py-2.5 text-xs text-slate-400 backdrop-blur-md;
+  }
+
+  .library-glass-badge {
+    @apply rounded-full border border-white/10 bg-white/[0.08] backdrop-blur-sm;
+  }
+
   .glass-sidebar {
     @apply border-r text-text;
     border-color: var(--cc-border);

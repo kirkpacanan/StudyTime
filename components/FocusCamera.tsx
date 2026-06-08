@@ -14,6 +14,7 @@ import {
   laplacianVarianceFaceRoi,
   normalizeSharpness,
 } from "@/lib/face-presence-quality";
+import { withMediapipeQuiet, withMediapipeQuietAsync } from "@/lib/mediapipe-quiet";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 type Props = {
@@ -23,6 +24,8 @@ type Props = {
   focusThreshold: number;
   distractionThreshold: number;
   onSample: (sample: FocusFrameResult) => void;
+  /** Glass footer styling for session library overlay */
+  variant?: "default" | "glass";
 };
 
 const AWAY_MS = 5000;
@@ -206,6 +209,7 @@ export function FocusCamera({
   focusThreshold,
   distractionThreshold,
   onSample,
+  variant = "default",
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -214,6 +218,7 @@ export function FocusCamera({
   const lastFaceAtRef = useRef<number>(Date.now());
   const engineRef = useRef<FocusAttentionEngine>(new FocusAttentionEngine());
   const lastPhoneTickAtRef = useRef<number>(0);
+  const phoneVideoTsRef = useRef<number>(0);
   const phoneDetectedUntilRef = useRef<number>(0);
   const phoneModelRef = useRef<unknown>(null);
   const phoneInFlightRef = useRef<boolean>(false);
@@ -274,6 +279,7 @@ export function FocusCamera({
       phoneDisabledRef.current = false;
       phoneHitTimesRef.current = [];
       phoneScoreEmaRef.current = 0;
+      phoneVideoTsRef.current = 0;
       phoneBoxRef.current = null;
       eyeOpennessCachedRef.current = null;
       lastEyeInferAtRef.current = 0;
@@ -298,6 +304,7 @@ export function FocusCamera({
     async (video: HTMLVideoElement, nowMs: number) => {
       if (phoneDisabledRef.current) return;
       if (phoneInFlightRef.current) return;
+      if (video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0) return;
       phoneInFlightRef.current = true;
       setPhoneUi((s) => ({
         ...s,
@@ -308,24 +315,29 @@ export function FocusCamera({
         const { FilesetResolver, ObjectDetector } = await import("@mediapipe/tasks-vision");
 
         if (!phoneModelRef.current) {
-          const fileset = await FilesetResolver.forVisionTasks(
-            MEDIAPIPE_VISION_WASM,
-            // `false`: classic loader (`vision_wasm_internal.js`). The ES-module
-            // loader pulls `vision_wasm_module_internal.js`, which references
-            // `import.meta` and throws when fetched from `/public` as a non-module script.
-            false,
-          );
-          phoneModelRef.current = await ObjectDetector.createFromOptions(fileset, {
-            baseOptions: { modelAssetPath: PHONE_OD_MODEL_URL },
-            runningMode: "VIDEO",
-            scoreThreshold: PHONE_OD_SCORE_THRESHOLD,
-            maxResults: 5,
+          phoneModelRef.current = await withMediapipeQuietAsync(async () => {
+            const fileset = await FilesetResolver.forVisionTasks(
+              MEDIAPIPE_VISION_WASM,
+              // `false`: classic loader (`vision_wasm_internal.js`). The ES-module
+              // loader pulls `vision_wasm_module_internal.js`, which references
+              // `import.meta` and throws when fetched from `/public` as a non-module script.
+              false,
+            );
+            return ObjectDetector.createFromOptions(fileset, {
+              baseOptions: { modelAssetPath: PHONE_OD_MODEL_URL },
+              runningMode: "VIDEO",
+              scoreThreshold: PHONE_OD_SCORE_THRESHOLD,
+              maxResults: 5,
+            });
           });
         }
         const detector = phoneModelRef.current as {
           detectForVideo: (frame: HTMLVideoElement, ts: number) => { detections: Array<{ categories: Array<{ score: number; categoryName: string }>; boundingBox?: { originX: number; originY: number; width: number; height: number } }> };
         };
-        const { detections } = detector.detectForVideo(video, performance.now());
+        phoneVideoTsRef.current = Math.max(phoneVideoTsRef.current + 1, nowMs);
+        const { detections } = withMediapipeQuiet(() =>
+          detector.detectForVideo(video, phoneVideoTsRef.current),
+        );
         const picks: Array<{
           score: number;
           box: { originX: number; originY: number; width: number; height: number };
@@ -860,14 +872,20 @@ export function FocusCamera({
           </div>
         ) : null}
       </div>
-      <div className="border-t border-slate-200/90 bg-slate-100 px-3 py-2.5 text-xs text-slate-600 dark:border-white/10 dark:bg-zinc-950 dark:text-zinc-400">
+      <div
+        className={
+          variant === "glass"
+            ? "library-glass-footer"
+            : "border-t border-slate-200/90 bg-slate-100 px-3 py-2.5 text-xs text-slate-600 dark:border-white/10 dark:bg-zinc-950 dark:text-zinc-400"
+        }
+      >
         {error ? (
           <span className="text-alert">{error}</span>
         ) : (
           <span>
             {status}
             {!phoneDisabledRef.current && phoneUi.lastScore != null ? (
-              <span className="ml-2 text-[10px] text-slate-500 dark:text-zinc-500">
+              <span className="ml-2 text-[10px] text-slate-500">
                 Phone conf: {(phoneUi.lastScore * 100).toFixed(0)}%
               </span>
             ) : null}

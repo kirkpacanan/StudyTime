@@ -1,9 +1,10 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Clock, BookOpen, ChevronRight, Sparkles, Users, Check } from "lucide-react";
+import { Clock, BookOpen, ChevronRight, Sparkles, Users, Check, X } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useSessionLive } from "@/contexts/session-live-context";
 import { useProgression } from "@/contexts/progression-context";
@@ -15,19 +16,27 @@ import type { FocusFrameResult } from "@/lib/focus-detection";
 import { getSettings } from "@/lib/storage";
 import type { FocusSample, SessionEvent, UserSettings } from "@/lib/types";
 import { cn } from "@/lib/cn";
-import { FocusCameraPanel } from "@/components/library/FocusCameraPanel";
 import { SessionTimerPanel } from "@/components/library/SessionTimerPanel";
+import { FocusBreakdownPanel } from "@/components/library/FocusBreakdownPanel";
 import { LibraryHUD } from "@/components/library/LibraryHUD";
-import { AvatarCreatorModal } from "@/components/library/AvatarCreatorModal";
+import { AvatarCreator } from "@/components/library/AvatarCreator";
 import { useLibraryPresence } from "@/hooks/useLibraryPresence";
 import type { LibraryFlowState } from "@/hooks/useLibraryPresence";
-import { getSupabaseBrowser } from "@/lib/supabase/client";
-import { isSupabaseEnabled } from "@/lib/supabase/config";
+import { loadAvatarUrl } from "@/lib/library/persist-avatar";
+import { getSeatById } from "@/lib/library/seats";
 import type { PresenceStatus } from "@/lib/social/types";
 
 const LibraryScene = dynamic(
   () => import("@/components/library/LibraryScene").then((m) => ({ default: m.LibraryScene })),
   { ssr: false, loading: () => <LibraryLoadingScreen /> },
+);
+
+const FocusCameraPanel = dynamic(
+  () =>
+    import("@/components/library/FocusCameraPanel").then((m) => ({
+      default: m.FocusCameraPanel,
+    })),
+  { ssr: false },
 );
 
 type Phase = "focus" | "break";
@@ -149,6 +158,7 @@ const DURATION_OPTIONS = [
 ];
 
 export default function SessionPage() {
+  const router = useRouter();
   const { user } = useAuth();
   const { setLive, resetLive } = useSessionLive();
   const { refresh: refreshProgression } = useProgression();
@@ -190,11 +200,22 @@ export default function SessionPage() {
   const phaseRef = useRef<Phase>("focus");
   const focusCompletedRef = useRef(0);
 
+  type LiveFocusFlags = {
+    phoneDetected?: boolean;
+    lookingAway?: boolean;
+    headDown?: boolean;
+    eyesClosed?: boolean;
+    hasFace?: boolean;
+  };
+
   // Focus sample for live analytics + library presence
   const [lastSample, setLastSample] = useState<FocusFrameResult>({
     score: 0, state: "away", rawEar: 0, hasFace: false,
     eyesScore: 0, faceScore: 0, yaw: 0, pitch: 0,
   });
+  const [liveFocusFlags, setLiveFocusFlags] = useState<LiveFocusFlags>({});
+  const [eyesClosedMs, setEyesClosedMs] = useState(0);
+  const [alarmRunning, setAlarmRunning] = useState(false);
 
   const [summary, setSummary] = useState<SessionEndSummary | null>(null);
 
@@ -206,34 +227,16 @@ export default function SessionPage() {
     return () => { cancelled = true; };
   }, [user]);
 
-  // Load avatar URL from Supabase profile or localStorage
+  // Load avatar URL — only prompt creator for new users without a saved avatar.
   useEffect(() => {
     if (!user || avatarChecked) return;
     const checkAvatar = async () => {
-      let url: string | null = null;
-
-      if (isSupabaseEnabled()) {
-        try {
-          const supabase = getSupabaseBrowser();
-          const { data } = await supabase
-            .from("profiles")
-            .select("avatar_url")
-            .eq("id", user.id)
-            .single();
-          if (data?.avatar_url) url = data.avatar_url as string;
-        } catch { /* ignore */ }
-      }
-
-      if (!url) {
-        try { url = localStorage.getItem("studytime_avatar_url"); } catch { /* ignore */ }
-      }
-
+      const url = await loadAvatarUrl(user.id);
       setAvatarUrl(url);
       setAvatarChecked(true);
 
       if (!url) {
-        // Delay slightly to let the library load first, then prompt.
-        window.setTimeout(() => setShowAvatarCreator(true), 1500);
+        window.setTimeout(() => setShowAvatarCreator(true), 1200);
       }
     };
     void checkAvatar();
@@ -363,19 +366,33 @@ export default function SessionPage() {
   // Focus sample handler
   const onSample = useCallback((sample: FocusFrameResult) => {
     setLastSample(sample);
-    if (!running || paused || phaseRef.current !== "focus") return;
     const flags = (sample as FocusFrameResult & {
+      flags?: LiveFocusFlags;
+    }).flags;
+    const durations = (sample as FocusFrameResult & {
+      durations?: { eyesClosedMs?: number; lookingAwayMs?: number; headDownMs?: number; phoneDetectedMs?: number };
+    }).durations;
+
+    setLiveFocusFlags({
+      phoneDetected: flags?.phoneDetected,
+      lookingAway: flags?.lookingAway,
+      headDown: flags?.headDown,
+      eyesClosed: flags?.eyesClosed,
+      hasFace: flags?.hasFace ?? sample.hasFace,
+    });
+    setEyesClosedMs(durations?.eyesClosedMs ?? 0);
+    setAlarmRunning(alarmRef.current?.isRunning() ?? false);
+
+    if (!running || paused || phaseRef.current !== "focus") return;
+    const sampleFlags = (sample as FocusFrameResult & {
       flags?: {
         phoneDetected?: boolean; eyesClosed?: boolean;
         lookingAway?: boolean; headDown?: boolean; drowsy?: boolean; hasFace?: boolean;
       };
-    }).flags;
-    const durations = (sample as FocusFrameResult & {
-      durations?: { eyesClosedMs?: number; lookingAwayMs?: number; headDownMs?: number; phoneDetectedMs?: number; };
-    }).durations;
+    }).flags ?? flags;
     const t = sessionMsRef.current;
     const prev = prevFlagsRef.current;
-    const phoneNow = flags?.phoneDetected === true;
+    const phoneNow = sampleFlags?.phoneDetected === true;
     const eyesClosed10sNow = (durations?.eyesClosedMs ?? 0) >= 10_000;
     const lookingAwayLongNow = (durations?.lookingAwayMs ?? 0) >= 6_000;
     const headDownLongNow = (durations?.headDownMs ?? 0) >= 4_500;
@@ -387,10 +404,11 @@ export default function SessionPage() {
     const alarm = alarmRef.current;
     if (shouldAlarm && alarm && !alarm.isRunning()) { alarm.start(); eventsRef.current.push({ t, type: "alarm_started" }); }
     else if (!shouldAlarm && alarm && alarm.isRunning()) { alarm.stop(); eventsRef.current.push({ t, type: "alarm_stopped" }); }
+    setAlarmRunning(alarm?.isRunning() ?? false);
     prevFlagsRef.current = { phoneDetected: phoneNow, eyesClosed10s: eyesClosed10sNow, lookingAwayLong: lookingAwayLongNow, headDownLong: headDownLongNow, alarmRunning: alarm?.isRunning() ?? false };
     samplesRef.current.push({
       t: sessionMsRef.current, score: sample.score, state: sample.state,
-      flags: flags ? { phoneDetected: flags.phoneDetected, lookingAway: flags.lookingAway, headDown: flags.headDown, eyesClosed: flags.eyesClosed, drowsy: flags.drowsy, hasFace: flags.hasFace } : undefined,
+      flags: sampleFlags ? { phoneDetected: sampleFlags.phoneDetected, lookingAway: sampleFlags.lookingAway, headDown: sampleFlags.headDown, eyesClosed: sampleFlags.eyesClosed, drowsy: (sampleFlags as { drowsy?: boolean }).drowsy, hasFace: sampleFlags.hasFace } : undefined,
     });
   }, [running, paused]);
 
@@ -454,6 +472,26 @@ export default function SessionPage() {
     setShowAvatarCreator(false);
   }, []);
 
+  const leaveToDashboard = useCallback(() => {
+    if (running) {
+      const confirmed = window.confirm(
+        "Leave this study session and return to the dashboard? Your progress may not be saved.",
+      );
+      if (!confirmed) return;
+    }
+    alarmRef.current?.stop();
+    resetLive();
+    setRunning(false);
+    setPaused(false);
+    if (typeof document !== "undefined") document.title = "StudyTime";
+    router.push("/dashboard");
+  }, [running, resetLive, router]);
+
+  const selectedSeat = useMemo(
+    () => (selectedSeatId ? getSeatById(selectedSeatId) : null),
+    [selectedSeatId],
+  );
+
   if (!user) {
     return <LibraryLoadingScreen />;
   }
@@ -476,15 +514,32 @@ export default function SessionPage() {
           peers={peers}
           onSeatClick={handleSeatClick}
           userName={user.name ?? "You"}
+          userId={user.id}
         />
       </div>
 
       {/* === HUD (top-left) === */}
       <LibraryHUD studyingCount={studyingCount + 1} />
 
-      {/* === Avatar Creator Modal === */}
+      {/* === Exit to dashboard === */}
+      {!showAvatarCreator && !summary && (
+        <button
+          type="button"
+          onClick={leaveToDashboard}
+          className="library-glass-panel fixed right-4 top-4 z-[250] flex h-10 w-10 items-center justify-center text-slate-400 transition hover:bg-white/10 hover:text-white"
+          aria-label="Back to dashboard"
+        >
+          <X className="h-5 w-5" />
+        </button>
+      )}
+
+      {/* === Avatar Creator (full-screen, new users only) === */}
       {showAvatarCreator && (
-        <AvatarCreatorModal onAvatarSaved={handleAvatarSaved} onSkip={handleSkipAvatar} />
+        <AvatarCreator
+          onAvatarSaved={handleAvatarSaved}
+          onClose={handleSkipAvatar}
+          showSkip
+        />
       )}
 
       {/* === Flow overlays === */}
@@ -513,7 +568,7 @@ export default function SessionPage() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            className="absolute bottom-6 left-1/2 -translate-x-1/2"
+            className="pointer-events-none absolute inset-x-0 bottom-6 z-[60] flex justify-center px-4"
           >
             <div className="flex items-center gap-3 rounded-2xl border border-emerald-500/30 bg-slate-900/90 px-6 py-3 shadow-2xl backdrop-blur-xl">
               <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-400">
@@ -526,81 +581,107 @@ export default function SessionPage() {
           </motion.div>
         )}
 
-        {/* DURATION SELECT — picker overlay */}
+        {/* DURATION SELECT — centered picker overlay */}
         {flowState === "duration_select" && (
           <motion.div
             key="duration_select"
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            className="absolute inset-0 flex items-center justify-center"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-[200] isolate flex items-center justify-center bg-black/55 px-4 backdrop-blur-md"
           >
-            <div className="w-full max-w-sm rounded-2xl border border-white/15 bg-slate-900/95 p-6 shadow-2xl backdrop-blur-xl">
-              <div className="mb-5 flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-500/20">
-                  <Clock className="h-5 w-5 text-sky-400" />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: 8 }}
+              transition={{ duration: 0.2 }}
+              className="relative w-full max-w-md"
+            >
+              <div className="overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-b from-slate-900 to-slate-950 shadow-2xl ring-1 ring-white/5">
+                {/* Header */}
+                <div className="border-b border-white/8 bg-sky-950/40 px-6 py-5">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-sky-500/20 ring-1 ring-sky-400/20">
+                      <Clock className="h-5 w-5 text-sky-400" />
+                    </div>
+                    <div className="min-w-0">
+                      <h2 className="text-lg font-bold text-white">Choose study duration</h2>
+                      <p className="mt-0.5 truncate text-sm text-slate-400">
+                        {selectedSeat
+                          ? `Seated at ${selectedSeat.label} — ready to focus`
+                          : "Your avatar is seated and ready"}
+                      </p>
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <h2 className="font-bold text-white">Choose study duration</h2>
-                  <p className="text-xs text-slate-400">Your avatar is seated and ready</p>
+
+                <div className="p-6">
+                  {/* Preset durations */}
+                  <p className="mb-2.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Quick picks
+                  </p>
+                  <div className="mb-5 grid grid-cols-2 gap-2.5">
+                    {DURATION_OPTIONS.map((opt) => {
+                      const selected = selectedDuration === opt.value;
+                      return (
+                        <button
+                          key={opt.value}
+                          onClick={() => setSelectedDuration(opt.value)}
+                          className={cn(
+                            "relative rounded-xl border py-3.5 text-sm font-semibold transition-all",
+                            selected
+                              ? "border-sky-400/60 bg-sky-500/15 text-sky-200 shadow-[0_0_20px_rgba(56,189,248,0.12)]"
+                              : "border-white/10 bg-white/[0.04] text-slate-300 hover:border-white/20 hover:bg-white/[0.08] hover:text-white",
+                          )}
+                        >
+                          {selected && (
+                            <Check className="absolute right-2.5 top-2.5 h-3.5 w-3.5 text-sky-400" />
+                          )}
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Custom duration */}
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Custom length
+                  </p>
+                  <div className="mb-6">
+                    <input
+                      type="number"
+                      min={5}
+                      max={480}
+                      value={customDuration}
+                      onChange={(e) => {
+                        setCustomDuration(e.target.value);
+                        const val = parseInt(e.target.value, 10);
+                        if (!isNaN(val) && val >= 5) setSelectedDuration(val);
+                      }}
+                      placeholder="Enter minutes (e.g. 90)"
+                      className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2.5 text-sm text-white placeholder-slate-500 outline-none transition focus:border-sky-500/50 focus:ring-2 focus:ring-sky-500/20"
+                    />
+                  </div>
+
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => { setFlowState("seat_select"); setSelectedSeatId(null); }}
+                      className="flex-1 rounded-xl border border-white/10 bg-white/[0.04] py-3 text-sm font-medium text-slate-400 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-white"
+                    >
+                      Change seat
+                    </button>
+                    <button
+                      onClick={startSession}
+                      className="flex flex-[1.4] items-center justify-center gap-2 rounded-xl bg-sky-600 py-3 text-sm font-semibold text-white shadow-lg shadow-sky-900/40 transition hover:bg-sky-500"
+                    >
+                      <Sparkles className="h-4 w-4" />
+                      Start {selectedDuration}m session
+                      <ChevronRight className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
               </div>
-
-              {/* Preset durations */}
-              <div className="mb-4 grid grid-cols-2 gap-2">
-                {DURATION_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.value}
-                    onClick={() => setSelectedDuration(opt.value)}
-                    className={cn(
-                      "rounded-xl border py-3 text-sm font-semibold transition-all",
-                      selectedDuration === opt.value
-                        ? "border-sky-500/50 bg-sky-500/20 text-sky-300"
-                        : "border-white/10 bg-white/5 text-slate-300 hover:bg-white/10 hover:text-white",
-                    )}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-
-              {/* Custom duration */}
-              <div className="mb-5">
-                <label className="mb-1.5 block text-xs font-medium text-slate-400">
-                  Custom (minutes)
-                </label>
-                <input
-                  type="number"
-                  min={5}
-                  max={480}
-                  value={customDuration}
-                  onChange={(e) => {
-                    setCustomDuration(e.target.value);
-                    const val = parseInt(e.target.value, 10);
-                    if (!isNaN(val) && val >= 5) setSelectedDuration(val);
-                  }}
-                  placeholder="e.g. 90"
-                  className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-slate-500 outline-none focus:border-sky-500/50 focus:ring-1 focus:ring-sky-500/30"
-                />
-              </div>
-
-              <div className="flex gap-2">
-                <button
-                  onClick={() => { setFlowState("seat_select"); setSelectedSeatId(null); }}
-                  className="flex-1 rounded-xl border border-white/10 bg-white/5 py-2.5 text-sm font-medium text-slate-400 hover:bg-white/10 hover:text-white transition-colors"
-                >
-                  Change seat
-                </button>
-                <button
-                  onClick={startSession}
-                  className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-sky-600 py-2.5 text-sm font-semibold text-white shadow hover:bg-sky-500 transition-colors"
-                >
-                  <Sparkles className="h-4 w-4" />
-                  Start {selectedDuration}m session
-                  <ChevronRight className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
+            </motion.div>
           </motion.div>
         )}
 
@@ -635,28 +716,15 @@ export default function SessionPage() {
               onEnd={() => void endSession()}
             />
 
-            {/* Focus score badge — top center */}
-            <div className="absolute left-1/2 top-4 -translate-x-1/2 z-[60]">
-              <div className={cn(
-                "flex items-center gap-2 rounded-full border px-4 py-1.5 text-sm font-semibold backdrop-blur-xl shadow",
-                lastSample.state === "focused"
-                  ? "border-sky-500/40 bg-sky-900/80 text-sky-200"
-                  : lastSample.state === "drifting"
-                  ? "border-amber-500/40 bg-amber-900/80 text-amber-200"
-                  : "border-red-500/40 bg-red-900/80 text-red-200",
-              )}>
-                <span className={cn(
-                  "h-2 w-2 animate-pulse rounded-full",
-                  lastSample.state === "focused" ? "bg-sky-400"
-                  : lastSample.state === "drifting" ? "bg-amber-400"
-                  : "bg-red-400",
-                )} />
-                Focus {Math.round(lastSample.score)}%
-                {phase === "break" && (
-                  <span className="ml-1 rounded-full bg-emerald-700/60 px-2 text-emerald-300 text-xs">Break</span>
-                )}
-              </div>
-            </div>
+            <FocusBreakdownPanel
+              sample={lastSample}
+              flags={liveFocusFlags}
+              phase={phase}
+              paused={paused}
+              phoneDetectionEnabled={phoneDetectionEnabled}
+              eyesClosedMs={eyesClosedMs}
+              alarmRunning={alarmRunning}
+            />
           </motion.div>
         )}
       </AnimatePresence>

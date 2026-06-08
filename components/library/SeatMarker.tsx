@@ -51,20 +51,30 @@ export function SeatMarker({ seat, occupied, selectable, onClick }: SeatMarkerPr
         />
       </mesh>
 
+      {/* Invisible click target — larger than the ring for easier selection */}
+      {selectable && (
+        <mesh
+          rotation={[-Math.PI / 2, 0, 0]}
+          position={[0, 0.05, 0]}
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            onClick();
+          }}
+          onPointerOver={(e) => {
+            e.stopPropagation();
+            document.body.style.cursor = "pointer";
+          }}
+          onPointerOut={() => {
+            document.body.style.cursor = "default";
+          }}
+        >
+          <cylinderGeometry args={[0.75, 0.75, 0.1, 16]} />
+          <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+        </mesh>
+      )}
+
       {/* Main indicator ring */}
-      <mesh
-        ref={ringRef}
-        rotation={[-Math.PI / 2, 0, 0]}
-        onClick={selectable ? onClick : undefined}
-        onPointerOver={(e) => {
-          if (!selectable) return;
-          e.stopPropagation();
-          document.body.style.cursor = "pointer";
-        }}
-        onPointerOut={() => {
-          document.body.style.cursor = "default";
-        }}
-      >
+      <mesh ref={ringRef} rotation={[-Math.PI / 2, 0, 0]}>
         <ringGeometry args={[0.32, 0.45, 32]} />
         <meshBasicMaterial
           color={selectable ? "#4ade80" : "#86efac"}
@@ -86,6 +96,7 @@ export function SeatMarker({ seat, occupied, selectable, onClick }: SeatMarkerPr
           center
           position={[0, 0.6, 0]}
           distanceFactor={10}
+          zIndexRange={[1, 0]}
           occlude
         >
           <div

@@ -9,6 +9,8 @@ import type { AvatarStatus } from "./StatusBadge";
 
 type AvatarProps = {
   avatarUrl: string;
+  /** Where the avatar starts (library entrance). */
+  spawnPosition: [number, number, number];
   targetPosition: [number, number, number];
   targetRotation: number;
   status: AvatarStatus;
@@ -16,6 +18,8 @@ type AvatarProps = {
   displayName: string;
   isLocalUser?: boolean;
   sessionDurationMs?: number;
+  /** Pre-loaded animation clips (idle, walk, sit). Leave empty for static avatar. */
+  animationClips?: THREE.AnimationClip[];
 };
 
 const WALK_SPEED = 3.5;
@@ -23,14 +27,15 @@ const LERP_ROTATION = 0.1;
 const ARRIVE_THRESHOLD = 0.1;
 
 /**
- * Loads a Ready Player Me avatar GLB and drives idle/walk/sit animations
- * based on the current status and whether the avatar has reached its seat.
+ * Loads a Ready Player Me avatar GLB and optionally drives idle/walk/sit animations.
  *
- * If the Mixamo animation GLBs are not yet downloaded, only the avatar mesh
- * renders (static), with a graceful fallback.
+ * Animations are only applied when `animationClips` is provided and non-empty.
+ * Without clips the avatar renders statically — this is the safe default until
+ * the Mixamo GLB files are placed in /public/animations/.
  */
 export function Avatar({
   avatarUrl,
+  spawnPosition,
   targetPosition,
   targetRotation,
   status,
@@ -38,44 +43,29 @@ export function Avatar({
   displayName,
   isLocalUser = false,
   sessionDurationMs,
+  animationClips = [],
 }: AvatarProps) {
   const groupRef = useRef<THREE.Group>(null);
-  const currentPosRef = useRef(new THREE.Vector3(...targetPosition));
-  const isWalkingRef = useRef(false);
-  const hasArrivedRef = useRef(false);
+  const currentPosRef = useRef(new THREE.Vector3(...spawnPosition));
+  const hasArrivedRef = useRef(true);
+  const walkingRef = useRef(false);
+  const bobPhaseRef = useRef(0);
 
   const { scene: avatarScene } = useGLTF(avatarUrl);
 
-  // Load animation GLBs — gracefully skip if not available.
-  const idleGltf = useConditionalGltf("/animations/idle.glb");
-  const walkGltf = useConditionalGltf("/animations/walk.glb");
-  const sitGltf = useConditionalGltf("/animations/sit.glb");
-
-  const animClips = useMemo(() => {
-    const clips: THREE.AnimationClip[] = [];
-    if (idleGltf?.animations?.length) {
-      const clip = idleGltf.animations[0].clone();
-      clip.name = "idle";
-      clips.push(clip);
-    }
-    if (walkGltf?.animations?.length) {
-      const clip = walkGltf.animations[0].clone();
-      clip.name = "walk";
-      clips.push(clip);
-    }
-    if (sitGltf?.animations?.length) {
-      const clip = sitGltf.animations[0].clone();
-      clip.name = "sit";
-      clips.push(clip);
-    }
-    return clips;
-  }, [idleGltf, walkGltf, sitGltf]);
-
-  const { actions, mixer } = useAnimations(animClips, groupRef);
+  const { actions, mixer } = useAnimations(animationClips, groupRef);
   const activeActionRef = useRef<string | null>(null);
 
   const clonedScene = useMemo(() => {
     const clone = avatarScene.clone(true);
+    // VALID / RPM avatars vary in scale — normalize to ~1.8m tall.
+    const box = new THREE.Box3().setFromObject(clone);
+    const size = box.getSize(new THREE.Vector3());
+    const maxDim = Math.max(size.x, size.y, size.z);
+    if (maxDim > 0) {
+      const scale = 1.8 / maxDim;
+      clone.scale.setScalar(scale);
+    }
     clone.traverse((node) => {
       if ((node as THREE.Mesh).isMesh) {
         const mesh = node as THREE.Mesh;
@@ -91,7 +81,7 @@ export function Avatar({
     return clone;
   }, [avatarScene]);
 
-  function playAction(name: string, fadeDuration = 0.4) {
+  const playAction = (name: string, fadeDuration = 0.4) => {
     if (activeActionRef.current === name) return;
     const next = actions[name];
     if (!next) return;
@@ -100,25 +90,39 @@ export function Avatar({
     else next.reset().fadeIn(fadeDuration);
     next.play();
     activeActionRef.current = name;
-  }
+  };
 
-  // Start idle on mount.
+  // Start idle on mount (only if clip is available).
   useEffect(() => {
     if (actions.idle) playAction("idle", 0.1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [actions.idle]);
 
-  // When target changes, start walking.
+  // Walk when seat target changes, then sit on arrival.
   useEffect(() => {
+    const atTarget =
+      Math.abs(currentPosRef.current.x - targetPosition[0]) < ARRIVE_THRESHOLD &&
+      Math.abs(currentPosRef.current.z - targetPosition[2]) < ARRIVE_THRESHOLD;
+    if (atTarget) {
+      hasArrivedRef.current = true;
+      walkingRef.current = false;
+      const arrivedAnim =
+        status === "studying" || status === "break" || status === "completed"
+          ? "sit"
+          : "idle";
+      playAction(arrivedAnim);
+      return;
+    }
     hasArrivedRef.current = false;
-    isWalkingRef.current = true;
+    walkingRef.current = true;
     if (actions.walk) playAction("walk");
+    else if (actions.idle) playAction("idle");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [targetPosition[0], targetPosition[2]]);
+  }, [targetPosition[0], targetPosition[2], status]);
 
   useFrame((_, delta) => {
     if (!groupRef.current) return;
-    mixer.update(delta);
+    if (animationClips.length > 0) mixer.update(delta);
 
     const target = new THREE.Vector3(...targetPosition);
 
@@ -126,23 +130,31 @@ export function Avatar({
       const dist = currentPosRef.current.distanceTo(target);
       if (dist < ARRIVE_THRESHOLD) {
         hasArrivedRef.current = true;
-        isWalkingRef.current = false;
+        walkingRef.current = false;
         currentPosRef.current.copy(target);
-        // Play sit if studying, idle otherwise.
-        const arrivedAnim = status === "studying" || status === "break" || status === "completed"
-          ? "sit"
-          : "idle";
+        const arrivedAnim =
+          status === "studying" || status === "break" || status === "completed"
+            ? "sit"
+            : "idle";
         playAction(arrivedAnim);
       } else {
+        walkingRef.current = true;
         const step = Math.min(delta * WALK_SPEED, dist);
         const dir = target.clone().sub(currentPosRef.current).normalize();
         currentPosRef.current.addScaledVector(dir, step);
       }
     }
 
-    groupRef.current.position.copy(currentPosRef.current);
+    const yBob =
+      walkingRef.current && animationClips.length === 0
+        ? Math.sin((bobPhaseRef.current += delta * 10)) * 0.04
+        : 0;
+    groupRef.current.position.set(
+      currentPosRef.current.x,
+      currentPosRef.current.y + yBob,
+      currentPosRef.current.z,
+    );
 
-    // Lerp rotation toward target.
     const targetQ = new THREE.Quaternion().setFromAxisAngle(
       new THREE.Vector3(0, 1, 0),
       targetRotation,
@@ -162,17 +174,4 @@ export function Avatar({
       />
     </group>
   );
-}
-
-/**
- * Tries to load a GLTF; returns null if the file is not found.
- * Uses a suspense-safe pattern with error boundary fallback.
- */
-function useConditionalGltf(path: string) {
-  try {
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    return useGLTF(path);
-  } catch {
-    return null;
-  }
 }

@@ -10,7 +10,7 @@ const FocusCamera = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="flex min-h-[140px] items-center justify-center bg-black/60 text-slate-400 text-sm">
+      <div className="flex min-h-[140px] items-center justify-center bg-black/40 text-slate-400 text-sm backdrop-blur-sm">
         Loading camera…
       </div>
     ),
@@ -72,7 +72,7 @@ export function FocusCameraPanel({
   return (
     <div
       ref={panelRef}
-      className="fixed z-[60] flex flex-col overflow-hidden rounded-xl border border-white/15 bg-slate-900/95 shadow-2xl backdrop-blur-xl"
+      className="library-glass-panel fixed z-[60] flex flex-col overflow-hidden"
       style={{
         left: pos.x,
         top: pos.y,
@@ -82,15 +82,15 @@ export function FocusCameraPanel({
     >
       {/* Drag handle / header */}
       <div
-        className="flex cursor-grab items-center gap-2 border-b border-white/10 bg-slate-800/80 px-3 py-2 active:cursor-grabbing"
+        className="library-glass-header flex cursor-grab items-center gap-2 px-3 py-2 active:cursor-grabbing"
         onMouseDown={onMouseDown}
       >
         <GripHorizontal className="h-3.5 w-3.5 shrink-0 text-slate-500" />
         <Video className="h-3.5 w-3.5 shrink-0 text-sky-400" />
-        <span className="flex-1 text-xs font-semibold text-slate-300">Live Vision</span>
+        <span className="flex-1 text-xs font-semibold text-slate-200">Live Vision</span>
         <button
           onClick={() => setMinimized((m) => !m)}
-          className="rounded p-0.5 text-slate-400 hover:bg-white/10 hover:text-white transition-colors"
+          className="rounded p-0.5 text-slate-400 transition-colors hover:bg-white/10 hover:text-white"
           aria-label={minimized ? "Expand camera" : "Minimize camera"}
         >
           {minimized ? (
@@ -102,7 +102,7 @@ export function FocusCameraPanel({
         {onClose && (
           <button
             onClick={onClose}
-            className="rounded p-0.5 text-slate-400 hover:bg-red-500/20 hover:text-red-300 transition-colors"
+            className="rounded p-0.5 text-slate-400 transition-colors hover:bg-red-500/20 hover:text-red-300"
             aria-label="Close camera panel"
           >
             <X className="h-3.5 w-3.5" />
@@ -112,7 +112,7 @@ export function FocusCameraPanel({
 
       {/* Camera feed */}
       {!minimized && (
-        <div className="overflow-hidden rounded-b-xl">
+        <div className="overflow-hidden">
           <FocusCamera
             enabled={enabled}
             active={active}
@@ -120,6 +120,7 @@ export function FocusCameraPanel({
             focusThreshold={focusThreshold}
             distractionThreshold={distractionThreshold}
             onSample={onSample}
+            variant="glass"
           />
         </div>
       )}

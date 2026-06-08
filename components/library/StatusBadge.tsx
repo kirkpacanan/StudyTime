@@ -41,6 +41,7 @@ export function StatusBadge({
       center
       position={[0, yOffset, 0]}
       distanceFactor={8}
+      zIndexRange={[1, 0]}
       occlude
     >
       <div className="pointer-events-none flex flex-col items-center gap-1" style={{ userSelect: "none" }}>

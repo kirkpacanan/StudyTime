@@ -35,6 +35,9 @@ export const LIBRARY_SEATS: SeatPosition[] = [
   { id: "t3-s4", label: "Table 3 · D", position: [ 7, 0,  2], rotation: Math.PI,    table: 3 },
 ];
 
+/** Where the local user's avatar spawns before walking to a seat. */
+export const AVATAR_SPAWN: [number, number, number] = [-11, 0, 6];
+
 /** Center of each table (for placing the table mesh). */
 export const TABLE_CENTERS: [number, number, number][] = [
   [-4,   0, 0],
@@ -44,4 +47,18 @@ export const TABLE_CENTERS: [number, number, number][] = [
 
 export function getSeatById(id: string): SeatPosition | undefined {
   return LIBRARY_SEATS.find((s) => s.id === id);
+}
+
+/** Chair cushion offset inside StudyChair (local Z from seat origin). */
+const CHAIR_SEAT_FORWARD = 0.4;
+
+/**
+ * World position where the avatar should stand/sit — aligned with the stool cushion,
+ * not the raw seat marker origin.
+ */
+export function getSeatAvatarPosition(seat: SeatPosition): [number, number, number] {
+  const angle = seat.rotation + Math.PI;
+  const dx = Math.sin(angle) * CHAIR_SEAT_FORWARD;
+  const dz = Math.cos(angle) * CHAIR_SEAT_FORWARD;
+  return [seat.position[0] + dx, seat.position[1], seat.position[2] + dz];
 }
