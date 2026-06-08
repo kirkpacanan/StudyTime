@@ -294,6 +294,8 @@ export default function SessionPage() {
   const longEvery = settings?.longBreakEvery ?? 4;
   const focusThreshold = settings?.focusThreshold ?? 70;
   const distractionThreshold = settings?.distractionThreshold ?? 40;
+  const focusSensitivity = settings?.focusSensitivity ?? "balanced";
+  const deskWorkBias = settings?.deskWorkBias ?? true;
   const webcamEnabled = settings?.webcamEnabled ?? true;
   const phoneDetectionEnabled = settings?.phoneDetectionEnabled ?? true;
 
@@ -762,6 +764,8 @@ export default function SessionPage() {
             phoneDetectionEnabled={phoneDetectionEnabled}
             focusThreshold={focusThreshold}
             distractionThreshold={distractionThreshold}
+            focusSensitivity={focusSensitivity}
+            deskWorkBias={deskWorkBias}
             onSample={onSample}
             running={running}
             paused={paused}

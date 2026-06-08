@@ -1,8 +1,12 @@
 "use client";
 
 import {
+  extractFaceSignals,
+  poseFromTransformMatrix,
+  scoreFocusFromFaceSignals,
   scoreFocusFromLandmarks,
   type Landmark68,
+  type SignalMode,
 } from "@/lib/focus-detection";
 import type { FocusFrameResult } from "@/lib/focus-detection";
 import {
@@ -11,9 +15,21 @@ import {
 } from "@/lib/focus-attention-engine";
 import {
   computeFacePresenceSignals,
+  eyeRegionSharpness,
   laplacianVarianceFaceRoi,
   normalizeSharpness,
 } from "@/lib/face-presence-quality";
+import { FaceMetricsSmoother } from "@/lib/vision/temporal-smooth";
+import type { FocusSensitivity } from "@/lib/types";
+import {
+  detectFaceLandmarks,
+  disposeFaceLandmarker,
+  getFaceLandmarker,
+  type FaceLandmarkerFrame,
+  type NormalizedLandmark,
+} from "@/lib/vision/face-landmarker";
+import { useFaceLandmarkerPrimary } from "@/lib/vision/feature-flag";
+import { MP_LEFT_EYE_EAR, MP_RIGHT_EYE_EAR } from "@/lib/vision/landmark-indices";
 import { withMediapipeQuiet, withMediapipeQuietAsync } from "@/lib/mediapipe-quiet";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -23,32 +39,30 @@ type Props = {
   phoneDetectionEnabled?: boolean;
   focusThreshold: number;
   distractionThreshold: number;
+  focusSensitivity?: FocusSensitivity;
+  deskWorkBias?: boolean;
   onSample: (sample: FocusFrameResult) => void;
   /** Glass footer styling for session library overlay */
   variant?: "default" | "glass";
 };
 
 const AWAY_MS = 5000;
-/** MediaPipe ObjectDetector (Wasm) cadence — faster than TFJS COCO path on typical laptops. */
+/** Brief dropout hold — keeps face lock on noisy frames. */
+const FACE_HOLD_MS = 450;
 const PHONE_DETECT_EVERY_MS = 800;
-const EYE_DETECT_EVERY_MS = 280;
 const ROI_SHARPNESS_EVERY_MS = 320;
-const EYE_MODEL_URL = "/models/eyeblink/model.json";
+const PARITY_LOG_EVERY_MS = 4_000;
 /** Vendored from `node_modules/@mediapipe/tasks-vision/wasm` via `npm run vendor:ml`. */
 const MEDIAPIPE_VISION_WASM = "/mediapipe/wasm";
-/** Vendored `.tflite` under `public/models/object_detector/` (same script); no CDN at runtime. */
 const PHONE_OD_MODEL_URL = "/models/object_detector/efficientdet_lite2.tflite";
-/** Internal detector threshold (multi-hit + EMA still gate user-facing alerts). */
 const PHONE_OD_SCORE_THRESHOLD = 0.28;
 const PHONE_HOLD_MS = 3500;
 const PHONE_SCORE_THRESHOLD = 0.23;
 const PHONE_HITS_WINDOW_MS = 2500;
 const PHONE_HITS_TO_TRIGGER = 2;
-/** Lower than Tiny’s box score; SSD often scores differently — tuned for noisy / dim webcams. */
 const SSD_MIN_CONFIDENCE = 0.32;
 
-const LEFT_EYE_I = [36, 37, 38, 39, 40, 41] as const;
-const RIGHT_EYE_I = [42, 43, 44, 45, 46, 47] as const;
+const landmarkerPrimary = useFaceLandmarkerPrimary();
 
 function isPhoneObjectLabel(categoryName: string): boolean {
   const n = categoryName.trim().toLowerCase();
@@ -67,7 +81,6 @@ function expressionsToRecord(
   return Object.keys(out).length ? out : undefined;
 }
 
-/** Map a point in video pixel space to the element box when video uses object-cover */
 function mapVideoPointToCover(
   video: HTMLVideoElement,
   elW: number,
@@ -93,13 +106,10 @@ function mapVideoPointToCover(
   return { x: px * scale + offX, y: py * scale + offY };
 }
 
-function drawFaceHud(
+function drawLandmarkerHud(
   canvas: HTMLCanvasElement,
   video: HTMLVideoElement,
-  det: {
-    detection: { box: { x: number; y: number; width: number; height: number } };
-    landmarks: { positions: { x: number; y: number }[] };
-  },
+  frame: FaceLandmarkerFrame,
   phoneBox?: { x: number; y: number; width: number; height: number; score?: number } | null,
 ) {
   const wrap = canvas.parentElement;
@@ -118,7 +128,7 @@ function drawFaceHud(
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
 
-  const box = det.detection.box;
+  const box = frame.box;
   const p1 = mapVideoPointToCover(video, w, h, box.x, box.y);
   const p2 = mapVideoPointToCover(video, w, h, box.x + box.width, box.y + box.height);
   ctx.strokeStyle = "rgba(59, 130, 246, 0.92)";
@@ -147,41 +157,38 @@ function drawFaceHud(
     ctx.fillText(label, q1.x + 6, Math.max(14, q1.y - 8));
   }
 
-  const pos = det.landmarks.positions;
-  if (!pos?.length) return;
-
   const vw = video.videoWidth;
   const vh = video.videoHeight;
   const vr = vw / vh;
   const er = w / h;
   const coverScale = vr > er ? h / vh : w / vw;
 
-  const eyeRadius = (idxs: readonly number[]) => {
+  const eyeRadius = (idxs: readonly number[], landmarks: NormalizedLandmark[]) => {
     let sx = 0;
     let sy = 0;
     let n = 0;
     for (const i of idxs) {
-      const p = pos[i];
+      const p = landmarks[i];
       if (p) {
-        sx += p.x;
-        sy += p.y;
+        sx += p.x * vw;
+        sy += p.y * vh;
         n++;
       }
     }
     if (!n) return null;
     const cx = sx / n;
     const cy = sy / n;
-    const p36 = pos[36];
-    const p39 = pos[39];
+    const p0 = landmarks[idxs[0]!];
+    const p3 = landmarks[idxs[3]!];
     const eyeW =
-      p36 && p39 ? Math.hypot(p39.x - p36.x, p39.y - p36.y) : 28;
+      p0 && p3 ? Math.hypot((p3.x - p0.x) * vw, (p3.y - p0.y) * vh) : 28;
     const r = Math.max(7, eyeW * 0.36 * coverScale);
     const c = mapVideoPointToCover(video, w, h, cx, cy);
     return { ...c, r };
   };
 
-  const le = eyeRadius(LEFT_EYE_I);
-  const re = eyeRadius(RIGHT_EYE_I);
+  const le = eyeRadius(MP_LEFT_EYE_EAR, frame.landmarks);
+  const re = eyeRadius(MP_RIGHT_EYE_EAR, frame.landmarks);
   ctx.strokeStyle = "rgba(34, 211, 238, 0.88)";
   ctx.lineWidth = 2;
   for (const e of [le, re]) {
@@ -202,12 +209,23 @@ function clearHud(canvas: HTMLCanvasElement | null) {
   ctx.clearRect(0, 0, w, h);
 }
 
+function signalModeLabel(mode: SignalMode | undefined): string | null {
+  if (!mode || mode === "full") return null;
+  if (mode === "monocular") return "One-eye tracking";
+  if (mode === "eyewear") return "Limited eye tracking";
+  if (mode === "pose_only") return "Pose-only tracking";
+  if (mode === "uncertain") return "Uncertain tracking";
+  return null;
+}
+
 export function FocusCamera({
   enabled,
   active,
   phoneDetectionEnabled = true,
   focusThreshold,
   distractionThreshold,
+  focusSensitivity = "balanced",
+  deskWorkBias = true,
   onSample,
   variant = "default",
 }: Props) {
@@ -217,6 +235,10 @@ export function FocusCamera({
   const smoothedRef = useRef<number | null>(null);
   const lastFaceAtRef = useRef<number>(Date.now());
   const engineRef = useRef<FocusAttentionEngine>(new FocusAttentionEngine());
+  const faceLandmarkerRef = useRef<Awaited<ReturnType<typeof getFaceLandmarker>>>(null);
+  const faceVideoTsRef = useRef<number>(0);
+  const lastYawRef = useRef<number | null>(null);
+  const lastParityLogAtRef = useRef<number>(0);
   const lastPhoneTickAtRef = useRef<number>(0);
   const phoneVideoTsRef = useRef<number>(0);
   const phoneDetectedUntilRef = useRef<number>(0);
@@ -224,25 +246,14 @@ export function FocusCamera({
   const phoneInFlightRef = useRef<boolean>(false);
   const phoneFailCountRef = useRef<number>(0);
   const phoneDisabledRef = useRef<boolean>(false);
-  const eyeModelRef = useRef<Awaited<
-    ReturnType<typeof import("@tensorflow/tfjs").loadGraphModel>
-  > | null>(null);
-  const eyeScratchRef = useRef<HTMLCanvasElement | null>(null);
-  const eyeOpennessCachedRef = useRef<number | null>(null);
-  const lastEyeInferAtRef = useRef<number>(0);
-  const eyeInFlightRef = useRef<boolean>(false);
-  const eyeFailCountRef = useRef<number>(0);
-  const eyeDisabledRef = useRef<boolean>(false);
-  /** Avoid setState churn: single loading + single ready/error/disabled per session. */
-  const eyeHudOnceRef = useRef({
-    loading: false,
-    ready: false,
-    error: false,
-    disabledNotified: false,
-  });
   const roiQualityCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const eyeSharpnessCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const lastSharpNormRef = useRef<number>(0.55);
   const lastRoiQualityMsRef = useRef<number>(0);
+  const lastMpFrameRef = useRef<FaceLandmarkerFrame | null>(null);
+  const lastMpFrameAtRef = useRef<number>(0);
+  const metricsSmootherRef = useRef(new FaceMetricsSmoother());
+  const trackingConfidenceEmaRef = useRef<number>(0.72);
 
   const phoneHitTimesRef = useRef<number[]>([]);
   const phoneScoreEmaRef = useRef<number>(0);
@@ -258,10 +269,7 @@ export function FocusCamera({
     status: "idle" | "loading" | "ready" | "detected" | "error" | "disabled";
     lastScore: number | null;
   }>({ enabled: true, status: "idle", lastScore: null });
-  /** HUD for eye TF model; updated at most once per phase to avoid flicker. */
-  const [eyeHud, setEyeHud] = useState<
-    "idle" | "loading" | "ready" | "error" | "disabled"
-  >("idle");
+  const [signalModeUi, setSignalModeUi] = useState<SignalMode>("full");
   const [status, setStatus] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [modelsReady, setModelsReady] = useState(false);
@@ -281,21 +289,17 @@ export function FocusCamera({
       phoneScoreEmaRef.current = 0;
       phoneVideoTsRef.current = 0;
       phoneBoxRef.current = null;
-      eyeOpennessCachedRef.current = null;
-      lastEyeInferAtRef.current = 0;
-      eyeInFlightRef.current = false;
-      eyeFailCountRef.current = 0;
-      eyeDisabledRef.current = false;
-      eyeHudOnceRef.current = {
-        loading: false,
-        ready: false,
-        error: false,
-        disabledNotified: false,
-      };
+      faceVideoTsRef.current = 0;
+      lastYawRef.current = null;
+      lastParityLogAtRef.current = 0;
       setPhoneUi({ enabled: true, status: "idle", lastScore: null });
-      setEyeHud("idle");
+      setSignalModeUi("full");
       lastSharpNormRef.current = 0.55;
       lastRoiQualityMsRef.current = 0;
+      lastMpFrameRef.current = null;
+      lastMpFrameAtRef.current = 0;
+      metricsSmootherRef.current.reset();
+      trackingConfidenceEmaRef.current = 0.72;
     }
   }, [enabled, modelsReady, active]);
   onSampleRef.current = onSample;
@@ -311,16 +315,12 @@ export function FocusCamera({
         status: phoneModelRef.current ? "ready" : "loading",
       }));
       try {
-        // MediaPipe ObjectDetector (EfficientDet-Lite2): better on small phones / poor webcams vs COCO-SSD; axis-aligned boxes → portrait or horizontal is fine.
         const { FilesetResolver, ObjectDetector } = await import("@mediapipe/tasks-vision");
 
         if (!phoneModelRef.current) {
           phoneModelRef.current = await withMediapipeQuietAsync(async () => {
             const fileset = await FilesetResolver.forVisionTasks(
               MEDIAPIPE_VISION_WASM,
-              // `false`: classic loader (`vision_wasm_internal.js`). The ES-module
-              // loader pulls `vision_wasm_module_internal.js`, which references
-              // `import.meta` and throws when fetched from `/public` as a non-module script.
               false,
             );
             return ObjectDetector.createFromOptions(fileset, {
@@ -352,13 +352,10 @@ export function FocusCamera({
         picks.sort((a, b) => b.score - a.score);
 
         const best = picks[0];
-
         const score = best?.score ?? 0;
-        // EMA smooths confidence, reduces flicker.
         phoneScoreEmaRef.current =
           phoneScoreEmaRef.current * 0.55 + score * 0.45;
 
-        // Temporal confirmation: require multiple hits within a short window.
         const hits = phoneHitTimesRef.current.filter(
           (t) => nowMs - t <= PHONE_HITS_WINDOW_MS,
         );
@@ -389,117 +386,12 @@ export function FocusCamera({
       } catch {
         phoneFailCountRef.current += 1;
         setPhoneUi((s) => ({ ...s, status: "error" }));
-        // Backoff and eventually disable if it keeps failing.
         if (phoneFailCountRef.current >= 5) {
           phoneDisabledRef.current = true;
           setPhoneUi((s) => ({ ...s, status: "disabled" }));
         }
       } finally {
         phoneInFlightRef.current = false;
-      }
-    },
-    [],
-  );
-
-  const runEyeOpenness = useCallback(
-    async (video: HTMLVideoElement, landmarks: { positions: { x: number; y: number }[] }) => {
-      if (eyeDisabledRef.current) return;
-      if (!eyeScratchRef.current && typeof document !== "undefined") {
-        eyeScratchRef.current = document.createElement("canvas");
-      }
-      const canvas = eyeScratchRef.current;
-      if (!canvas) return;
-
-      try {
-        const tf = await import("@tensorflow/tfjs");
-        await import("@tensorflow/tfjs-backend-webgl");
-        try {
-          if (tf.getBackend() !== "webgl") await tf.setBackend("webgl");
-          await tf.ready();
-        } catch {
-          await tf.ready();
-        }
-
-        if (!eyeModelRef.current) {
-          eyeModelRef.current = await tf.loadGraphModel(EYE_MODEL_URL);
-        }
-
-        const model = eyeModelRef.current;
-        if (!model) return;
-
-        if (!eyeHudOnceRef.current.ready) {
-          eyeHudOnceRef.current.ready = true;
-          setEyeHud("ready");
-        }
-
-        const pos = landmarks.positions;
-        const pts = [...LEFT_EYE_I, ...RIGHT_EYE_I]
-          .map((i) => pos[i])
-          .filter(Boolean) as { x: number; y: number }[];
-        if (!pts.length) return;
-
-        let minX = pts[0]!.x;
-        let maxX = pts[0]!.x;
-        let minY = pts[0]!.y;
-        let maxY = pts[0]!.y;
-        for (const p of pts) {
-          minX = Math.min(minX, p.x);
-          maxX = Math.max(maxX, p.x);
-          minY = Math.min(minY, p.y);
-          maxY = Math.max(maxY, p.y);
-        }
-        const padX = (maxX - minX) * 0.38;
-        const padY = (maxY - minY) * 0.52;
-        const vw = video.videoWidth;
-        const vh = video.videoHeight;
-        if (!vw || !vh) return;
-
-        let sx = Math.floor(minX - padX);
-        let sy = Math.floor(minY - padY);
-        let sw = Math.ceil(maxX - minX + 2 * padX);
-        let sh = Math.ceil(maxY - minY + 2 * padY);
-        sx = Math.max(0, Math.min(vw - 1, sx));
-        sy = Math.max(0, Math.min(vh - 1, sy));
-        sw = Math.max(1, Math.min(vw - sx, sw));
-        sh = Math.max(1, Math.min(vh - sy, sh));
-        if (sw < 10 || sh < 10) return;
-
-        canvas.width = 34;
-        canvas.height = 26;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return;
-        ctx.drawImage(video, sx, sy, sw, sh, 0, 0, 34, 26);
-
-        let out: number | null = null;
-        tf.tidy(() => {
-          const img = tf.browser.fromPixels(canvas, 1).toFloat().div(255);
-          const batched = img.expandDims(0);
-          const y = model.predict(batched) as import("@tensorflow/tfjs").Tensor;
-          const v = y.dataSync()[0];
-          if (typeof v === "number" && Number.isFinite(v)) {
-            out = Math.max(0, Math.min(1, v));
-          }
-        });
-
-        if (out != null) {
-          eyeOpennessCachedRef.current = out;
-          eyeFailCountRef.current = 0;
-        }
-      } catch {
-        eyeFailCountRef.current += 1;
-        if (!eyeHudOnceRef.current.error) {
-          eyeHudOnceRef.current.error = true;
-          setEyeHud("error");
-        }
-        if (eyeFailCountRef.current >= 5) {
-          eyeDisabledRef.current = true;
-          if (!eyeHudOnceRef.current.disabledNotified) {
-            eyeHudOnceRef.current.disabledNotified = true;
-            setEyeHud("disabled");
-          }
-        }
-      } finally {
-        eyeInFlightRef.current = false;
       }
     },
     [],
@@ -524,6 +416,8 @@ export function FocusCamera({
   useEffect(() => {
     if (!enabled) {
       disposePhoneMl();
+      disposeFaceLandmarker();
+      faceLandmarkerRef.current = null;
       stopStream();
       setModelsReady(false);
       setStatus("Camera off — use manual focus or enable in Settings.");
@@ -537,7 +431,12 @@ export function FocusCamera({
       setStatus("Starting camera…");
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "user", width: 640, height: 480 },
+          video: {
+            facingMode: "user",
+            width: { ideal: 1280, min: 640 },
+            height: { ideal: 720, min: 480 },
+            frameRate: { ideal: 24, max: 30 },
+          },
           audio: false,
         });
         if (cancelled) {
@@ -551,14 +450,24 @@ export function FocusCamera({
           await v.play();
         }
         setStatus("Loading vision models…");
-        const faceapi = await import("@vladmandic/face-api");
-        const MODEL_URL = "/models";
-        await Promise.all([
-          faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
-          faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
-          faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
-          faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL),
-        ]);
+        const landmarker = await getFaceLandmarker();
+        if (cancelled) return;
+        if (!landmarker) {
+          throw new Error("Face Landmarker failed to load. Run npm run vendor:ml.");
+        }
+        faceLandmarkerRef.current = landmarker;
+
+        if (!landmarkerPrimary) {
+          const faceapi = await import("@vladmandic/face-api");
+          const MODEL_URL = "/models";
+          await Promise.all([
+            faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+            faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
+            faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+            faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL),
+          ]);
+        }
+
         if (cancelled) return;
         setModelsReady(true);
         setStatus("Tracking eyes, face & distractions");
@@ -574,6 +483,8 @@ export function FocusCamera({
       cancelled = true;
       stopStream();
       disposePhoneMl();
+      disposeFaceLandmarker();
+      faceLandmarkerRef.current = null;
     };
   }, [enabled, stopStream, disposePhoneMl]);
 
@@ -591,118 +502,224 @@ export function FocusCamera({
 
       try {
         const nowMs = Date.now();
-        const faceapi = await import("@vladmandic/face-api");
-        const tinyOpts = new faceapi.TinyFaceDetectorOptions({
-          inputSize: 416,
-          /** Stricter = fewer false “in frame” when you’re off-camera or occluded. */
-          scoreThreshold: 0.36,
-        });
-        let det =
-          await faceapi
-            .detectSingleFace(video, tinyOpts)
-            .withFaceLandmarks()
-            .withFaceExpressions();
-        if (!det) {
-          det = await faceapi
-            .detectSingleFace(
-              video,
-              new faceapi.SsdMobilenetv1Options({
-                minConfidence: SSD_MIN_CONFIDENCE,
-                maxResults: 1,
-              }),
-            )
-            .withFaceLandmarks()
-            .withFaceExpressions();
-        }
+        const landmarker = faceLandmarkerRef.current;
+        if (!landmarker) return;
 
-        const expressions = expressionsToRecord(det?.expressions);
-        const landmarks = det?.landmarks;
+        faceVideoTsRef.current = Math.max(faceVideoTsRef.current + 1, nowMs);
+        let mpFrame = detectFaceLandmarks(landmarker, video, faceVideoTsRef.current);
+        if (mpFrame) {
+          lastMpFrameRef.current = mpFrame;
+          lastMpFrameAtRef.current = nowMs;
+        } else if (
+          lastMpFrameRef.current &&
+          nowMs - lastMpFrameAtRef.current <= FACE_HOLD_MS
+        ) {
+          mpFrame = lastMpFrameRef.current;
+        }
 
         const vw = video.videoWidth;
         const vh = video.videoHeight;
-        const detTyped = det as
-          | {
-              detection: {
-                score?: number;
-                box: { x: number; y: number; width: number; height: number };
-              };
-            }
-          | undefined;
 
         let sharpNorm = lastSharpNormRef.current;
-        const box = detTyped?.detection?.box;
-        if (box && vw && vh && nowMs - lastRoiQualityMsRef.current >= ROI_SHARPNESS_EVERY_MS) {
+        if (
+          mpFrame?.box &&
+          vw &&
+          vh &&
+          nowMs - lastRoiQualityMsRef.current >= ROI_SHARPNESS_EVERY_MS
+        ) {
           lastRoiQualityMsRef.current = nowMs;
           if (!roiQualityCanvasRef.current) {
             roiQualityCanvasRef.current = document.createElement("canvas");
           }
-          const rawVar = laplacianVarianceFaceRoi(video, box, roiQualityCanvasRef.current);
+          const rawVar = laplacianVarianceFaceRoi(video, mpFrame.box, roiQualityCanvasRef.current);
           sharpNorm = normalizeSharpness(rawVar);
           lastSharpNormRef.current = sharpNorm;
         }
 
-        const detScore =
-          typeof detTyped?.detection?.score === "number"
-            ? detTyped.detection.score
-            : detTyped
-              ? 0.5
-              : 0;
+        let base: FocusFrameResult = {
+          score: 0,
+          state: "away",
+          rawEar: 0,
+          hasFace: false,
+          eyesScore: 0,
+          faceScore: 0,
+          yaw: 0,
+          pitch: 0,
+        };
 
         let trackingConfidence = 1;
         let presenceQuality: number | undefined;
-        if (detTyped?.detection?.box && vw && vh) {
-          const sig = computeFacePresenceSignals(
-            detScore,
-            detTyped.detection.box,
+        let eyeReliabilityL = 1;
+        let eyeReliabilityR = 1;
+        let eyeLikelyClosed = false;
+        let eyeBlinkShutL = 0;
+        let eyeBlinkShutR = 0;
+
+        if (mpFrame && vw && vh) {
+          if (!eyeSharpnessCanvasRef.current) {
+            eyeSharpnessCanvasRef.current = document.createElement("canvas");
+          }
+          const eyeSharpL = eyeRegionSharpness(
+            video,
+            mpFrame.landmarks,
+            MP_LEFT_EYE_EAR,
+            eyeSharpnessCanvasRef.current,
+          );
+          const eyeSharpR = eyeRegionSharpness(
+            video,
+            mpFrame.landmarks,
+            MP_RIGHT_EYE_EAR,
+            eyeSharpnessCanvasRef.current,
+          );
+
+          const posePreview = poseFromTransformMatrix(mpFrame.transformMatrix);
+          const poseStability =
+            lastYawRef.current == null
+              ? 0.85
+              : Math.max(0.35, 1 - Math.abs(posePreview.yaw - lastYawRef.current) * 2.2);
+          lastYawRef.current = posePreview.yaw;
+
+          const presence = computeFacePresenceSignals(
+            mpFrame.detectionConfidence,
+            mpFrame.box,
             vw,
             vh,
             sharpNorm,
+            {
+              landmarks: mpFrame.landmarks,
+              poseStability,
+              blendshapeBlinkL: mpFrame.blendshapes.eyeBlinkLeft ?? 0,
+              blendshapeBlinkR: mpFrame.blendshapes.eyeBlinkRight ?? 0,
+              eyeSharpnessL: eyeSharpL,
+              eyeSharpnessR: eyeSharpR,
+            },
           );
-          trackingConfidence = sig.trackingConfidence;
-          presenceQuality = sig.presenceQuality;
-        } else if (!detTyped) {
-          lastSharpNormRef.current = 0.55;
-        }
+          trackingConfidence =
+            trackingConfidenceEmaRef.current * 0.55 + presence.trackingConfidence * 0.45;
+          trackingConfidenceEmaRef.current = trackingConfidence;
+          presenceQuality = presence.presenceQuality;
+          eyeReliabilityL = presence.eyeReliabilityL;
+          eyeReliabilityR = presence.eyeReliabilityR;
 
-        const base = scoreFocusFromLandmarks(
-          landmarks as unknown as Landmark68 | undefined,
-          expressions,
-          {
+          const preSignals = extractFaceSignals({
+            landmarks: mpFrame.landmarks,
+            blendshapes: mpFrame.blendshapes,
+            transformMatrix: mpFrame.transformMatrix,
+            presence,
+            videoWidth: vw,
+            videoHeight: vh,
+          });
+
+          const smoothed = metricsSmootherRef.current.push(
+            {
+              ear: preSignals.ear,
+              earL: preSignals.earL,
+              earR: preSignals.earR,
+              blinkOpen: preSignals.eyeBlinkAssist,
+              yaw: preSignals.yaw,
+              pitch: preSignals.pitch,
+            },
+            trackingConfidence,
+          );
+
+          const signals = extractFaceSignals(
+            {
+              landmarks: mpFrame.landmarks,
+              blendshapes: mpFrame.blendshapes,
+              transformMatrix: mpFrame.transformMatrix,
+              presence,
+              videoWidth: vw,
+              videoHeight: vh,
+            },
+            { smoothed },
+          );
+          eyeLikelyClosed = signals.eyeLikelyClosed;
+          eyeBlinkShutL = signals.eyeBlinkShutL;
+          eyeBlinkShutR = signals.eyeBlinkShutR;
+
+          base = scoreFocusFromFaceSignals(signals, {
             focusThreshold,
             distractionThreshold,
             prevSmoothed: smoothedRef.current,
             smoothAlpha: 0.28,
             trackingConfidence,
             presenceQuality,
-          },
-        );
+          });
+          base.eyeReliabilityL = eyeReliabilityL;
+          base.eyeReliabilityR = eyeReliabilityR;
 
-        if (det && canvas && video) {
-          drawFaceHud(
-            canvas,
-            video,
-            det as {
-              detection: {
-                box: { x: number; y: number; width: number; height: number };
-              };
-              landmarks: { positions: { x: number; y: number }[] };
-            },
-            phoneBoxRef.current,
-          );
+          if (canvas && video) {
+            drawLandmarkerHud(canvas, video, mpFrame, phoneBoxRef.current);
+          }
+          setSignalModeUi(base.signalMode ?? "full");
         } else {
+          lastSharpNormRef.current = 0.55;
           clearHud(canvas);
+          setSignalModeUi("full");
+        }
+
+        // Dev parity: compare MediaPipe vs face-api when legacy flag is on.
+        if (!landmarkerPrimary && mpFrame && nowMs - lastParityLogAtRef.current >= PARITY_LOG_EVERY_MS) {
+          lastParityLogAtRef.current = nowMs;
+          try {
+            const faceapi = await import("@vladmandic/face-api");
+            const tinyOpts = new faceapi.TinyFaceDetectorOptions({
+              inputSize: 416,
+              scoreThreshold: 0.36,
+            });
+            let det =
+              await faceapi
+                .detectSingleFace(video, tinyOpts)
+                .withFaceLandmarks()
+                .withFaceExpressions();
+            if (!det) {
+              det = await faceapi
+                .detectSingleFace(
+                  video,
+                  new faceapi.SsdMobilenetv1Options({
+                    minConfidence: SSD_MIN_CONFIDENCE,
+                    maxResults: 1,
+                  }),
+                )
+                .withFaceLandmarks()
+                .withFaceExpressions();
+            }
+            if (det) {
+              const legacy = scoreFocusFromLandmarks(
+                det.landmarks as unknown as Landmark68,
+                expressionsToRecord(det.expressions),
+                {
+                  focusThreshold,
+                  distractionThreshold,
+                  prevSmoothed: null,
+                  smoothAlpha: 0.28,
+                  trackingConfidence,
+                },
+              );
+              if (process.env.NODE_ENV === "development") {
+                console.debug("[focus-parity]", {
+                  earMp: base.rawEar.toFixed(3),
+                  earFa: legacy.rawEar.toFixed(3),
+                  yawMp: base.yaw.toFixed(3),
+                  yawFa: legacy.yaw.toFixed(3),
+                  pitchMp: base.pitch.toFixed(3),
+                  pitchFa: legacy.pitch.toFixed(3),
+                });
+              }
+              base = legacy;
+            }
+          } catch {
+            /* parity logging is best-effort */
+          }
         }
 
         if (base.hasFace) {
           smoothedRef.current = base.score;
           lastFaceAtRef.current = Date.now();
-        } else {
-          eyeOpennessCachedRef.current = null;
         }
 
         const awayFor = Date.now() - lastFaceAtRef.current;
 
-        // Low-cadence phone detection (MediaPipe EfficientDet-Lite2). If detected, hold flag for a few seconds.
         if (
           base.hasFace &&
           phoneDetectionEnabled &&
@@ -710,7 +727,6 @@ export function FocusCamera({
           nowMs - lastPhoneTickAtRef.current >= PHONE_DETECT_EVERY_MS
         ) {
           lastPhoneTickAtRef.current = nowMs;
-          // Extra safety: ensure any unexpected rejection is swallowed.
           void runPhoneDetection(video, nowMs).catch(() => {});
         }
 
@@ -719,30 +735,21 @@ export function FocusCamera({
 
         const hasTrackedFace = base.hasFace && awayFor <= AWAY_MS;
 
-        if (
-          hasTrackedFace &&
-          landmarks &&
-          !eyeDisabledRef.current &&
-          nowMs - lastEyeInferAtRef.current >= EYE_DETECT_EVERY_MS &&
-          !eyeInFlightRef.current
-        ) {
-          if (!eyeHudOnceRef.current.loading) {
-            eyeHudOnceRef.current.loading = true;
-            setEyeHud("loading");
-          }
-          lastEyeInferAtRef.current = nowMs;
-          eyeInFlightRef.current = true;
-          void runEyeOpenness(video, landmarks).catch(() => {
-            eyeInFlightRef.current = false;
-          });
-        }
-
-        // Feed the attention engine (stateful; handles gating + realistic dynamics)
         const out: AttentionFrameResult = engineRef.current.update({
           nowMs,
           hasFace: hasTrackedFace,
           ear: base.rawEar,
-          eyeOpennessMl: hasTrackedFace ? eyeOpennessCachedRef.current : null,
+          earL: hasTrackedFace ? base.earL : undefined,
+          earR: hasTrackedFace ? base.earR : undefined,
+          eyeLikelyClosed: hasTrackedFace ? eyeLikelyClosed : undefined,
+          eyeBlinkAssist: hasTrackedFace ? base.eyeBlinkAssist : null,
+          eyeBlinkShutL: hasTrackedFace ? eyeBlinkShutL : undefined,
+          eyeBlinkShutR: hasTrackedFace ? eyeBlinkShutR : undefined,
+          eyeReliabilityL: hasTrackedFace ? eyeReliabilityL : undefined,
+          eyeReliabilityR: hasTrackedFace ? eyeReliabilityR : undefined,
+          signalMode: base.signalMode,
+          deskWorkBias,
+          focusSensitivity,
           eyesScore: base.eyesScore,
           faceScore: base.faceScore,
           yaw: base.yaw,
@@ -755,7 +762,6 @@ export function FocusCamera({
           clearHud(canvas);
         }
 
-        // Backwards-compatible shape: keep existing FocusFrameResult fields, add optional flags.
         const compat: FocusFrameResult & {
           flags?: AttentionFrameResult["flags"];
           durations?: AttentionFrameResult["durations"];
@@ -772,6 +778,12 @@ export function FocusCamera({
           durations: out.durations,
           trackingConfidence: base.trackingConfidence,
           presenceQuality: base.presenceQuality,
+          signalMode: base.signalMode,
+          earL: base.earL,
+          earR: base.earR,
+          eyeReliabilityL: base.eyeReliabilityL,
+          eyeReliabilityR: base.eyeReliabilityR,
+          eyeBlinkAssist: base.eyeBlinkAssist,
         };
 
         onSampleRef.current(compat);
@@ -796,7 +808,6 @@ export function FocusCamera({
     }, 240);
     return () => {
       window.clearInterval(id);
-      // Intentionally read ref at teardown so we clear the mounted canvas
       // eslint-disable-next-line react-hooks/exhaustive-deps -- latest node on unmount
       clearHud(canvasRef.current);
     };
@@ -808,9 +819,12 @@ export function FocusCamera({
     modelsReady,
     focusThreshold,
     distractionThreshold,
+    focusSensitivity,
+    deskWorkBias,
     runPhoneDetection,
-    runEyeOpenness,
   ]);
+
+  const limitedLabel = signalModeLabel(signalModeUi);
 
   return (
     <div className="flex min-h-0 flex-col">
@@ -854,19 +868,9 @@ export function FocusCamera({
                     ? "Phone detected"
                     : "Phone Detection on"}
             </span>
-            {eyeHud !== "idle" ? (
-              <span
-                className="rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider bg-white/10 text-zinc-200"
-              >
-                {eyeHud === "loading"
-                  ? "Eye assist starting"
-                  : eyeHud === "ready"
-                    ? "Eye assist on"
-                    : eyeHud === "error"
-                      ? "Eye assist unavailable"
-                      : eyeHud === "disabled"
-                        ? "Eye assist off"
-                        : ""}
+            {limitedLabel ? (
+              <span className="rounded-full bg-amber-500/25 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-amber-100">
+                {limitedLabel}
               </span>
             ) : null}
           </div>

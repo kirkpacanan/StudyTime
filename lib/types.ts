@@ -53,6 +53,8 @@ export type StudySession = {
   events?: SessionEvent[];
 };
 
+export type FocusSensitivity = "strict" | "balanced" | "accessible";
+
 export type UserSettings = {
   focusMinutes: number;
   shortBreakMinutes: number;
@@ -63,6 +65,10 @@ export type UserSettings = {
   webcamEnabled: boolean;
   notificationsEnabled: boolean;
   phoneDetectionEnabled: boolean;
+  /** How aggressively focus/drowsiness penalties apply. */
+  focusSensitivity: FocusSensitivity;
+  /** Bias head-down posture toward desk-work (notes) instead of distraction. */
+  deskWorkBias: boolean;
 };
 
 export type UserRecord = {
@@ -84,6 +90,8 @@ export const DEFAULT_SETTINGS: UserSettings = {
   webcamEnabled: true,
   notificationsEnabled: false,
   phoneDetectionEnabled: true,
+  focusSensitivity: "balanced",
+  deskWorkBias: true,
 };
 
 export type LiveSessionSnapshot = {

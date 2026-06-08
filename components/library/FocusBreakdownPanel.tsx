@@ -143,6 +143,16 @@ export function FocusBreakdownPanel({
     return () => clearTimeout(id);
   }, [sample.score]);
 
+  const trackingNote = useMemo(() => {
+    const mode = sample.signalMode;
+    if (!mode || mode === "full") return null;
+    if (mode === "monocular") return "Using one visible eye";
+    if (mode === "eyewear") return "Eyewear limiting eye tracking";
+    if (mode === "pose_only") return "Pose-only — eyes unavailable";
+    if (mode === "uncertain") return "Low confidence — neutral scoring";
+    return null;
+  }, [sample.signalMode]);
+
   const sleepPct = useMemo(
     () => Math.min(100, (eyesClosedMs / SLEEP_ALARM_MS) * 100),
     [eyesClosedMs],
@@ -293,6 +303,12 @@ export function FocusBreakdownPanel({
               <StatBar label="Eyes" value={sample.eyesScore} colorClass="bg-cyan-400/80" />
               <StatBar label="Face" value={sample.faceScore} colorClass="bg-emerald-400/80" />
             </div>
+
+            {trackingNote ? (
+              <p className="w-full text-center text-[9px] leading-snug text-amber-200/80">
+                {trackingNote}
+              </p>
+            ) : null}
 
             {alerts.length > 0 && (
               <div className="flex w-full flex-wrap gap-1 border-t border-white/[0.06] pt-2">

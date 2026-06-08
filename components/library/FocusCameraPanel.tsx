@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Video, Minimize2, Maximize2, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import type { FocusFrameResult } from "@/lib/focus-detection";
+import type { FocusSensitivity } from "@/lib/types";
 import { LibraryIconButton, LibraryPanelHeader } from "./SessionChrome";
 
 const FocusCamera = dynamic(
@@ -28,6 +29,8 @@ type FocusCameraPanelProps = {
   phoneDetectionEnabled: boolean;
   focusThreshold: number;
   distractionThreshold: number;
+  focusSensitivity?: FocusSensitivity;
+  deskWorkBias?: boolean;
   onSample: (sample: FocusFrameResult) => void;
   onClose?: () => void;
 };
@@ -38,6 +41,8 @@ export function FocusCameraPanel({
   phoneDetectionEnabled,
   focusThreshold,
   distractionThreshold,
+  focusSensitivity,
+  deskWorkBias,
   onSample,
   onClose,
 }: FocusCameraPanelProps) {
@@ -99,6 +104,8 @@ export function FocusCameraPanel({
           phoneDetectionEnabled={phoneDetectionEnabled}
           focusThreshold={focusThreshold}
           distractionThreshold={distractionThreshold}
+          focusSensitivity={focusSensitivity}
+          deskWorkBias={deskWorkBias}
           onSample={onSample}
           variant="glass"
         />

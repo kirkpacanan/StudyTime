@@ -1,6 +1,7 @@
 "use client";
 
 import type { FocusFrameResult } from "@/lib/focus-detection";
+import type { FocusSensitivity } from "@/lib/types";
 import { FocusCameraPanel } from "./FocusCameraPanel";
 import { FocusBreakdownPanel } from "./FocusBreakdownPanel";
 import { SessionTimerPanel } from "./SessionTimerPanel";
@@ -19,6 +20,8 @@ type SessionPanelsLayerProps = {
   phoneDetectionEnabled: boolean;
   focusThreshold: number;
   distractionThreshold: number;
+  focusSensitivity?: FocusSensitivity;
+  deskWorkBias?: boolean;
   onSample: (sample: FocusFrameResult) => void;
   running: boolean;
   paused: boolean;
@@ -59,6 +62,8 @@ export function SessionPanelsLayer(props: SessionPanelsLayerProps) {
           phoneDetectionEnabled={props.phoneDetectionEnabled}
           focusThreshold={props.focusThreshold}
           distractionThreshold={props.distractionThreshold}
+          focusSensitivity={props.focusSensitivity}
+          deskWorkBias={props.deskWorkBias}
           onSample={props.onSample}
         />
       </div>

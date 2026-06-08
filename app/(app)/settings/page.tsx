@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { PrivacySettingsCard } from "@/components/social/PrivacySettingsCard";
 import { useAuth } from "@/hooks/useAuth";
 import { getSettings, saveSettings } from "@/lib/storage";
-import { DEFAULT_SETTINGS, type UserSettings } from "@/lib/types";
+import { DEFAULT_SETTINGS, type FocusSensitivity, type UserSettings } from "@/lib/types";
 import { useEffect, useState } from "react";
 
 export default function SettingsPage() {
@@ -140,9 +140,33 @@ export default function SettingsPage() {
               }
             />
           </label>
+          <label className="text-xs font-medium text-muted sm:col-span-2">
+            Sensitivity preset
+            <select
+              className="mt-1 w-full rounded-md border border-primary/20 bg-surface px-3 py-2 text-sm text-text"
+              value={form.focusSensitivity}
+              onChange={(e) =>
+                update("focusSensitivity", e.target.value as FocusSensitivity)
+              }
+            >
+              <option value="strict">Strict — tighter gaze and head-down penalties</option>
+              <option value="balanced">Balanced — default study behavior</option>
+              <option value="accessible">Accessible — softer penalties, more desk-work tolerance</option>
+            </select>
+          </label>
         </div>
+        <label className="flex items-center gap-3 text-sm text-text">
+          <input
+            type="checkbox"
+            checked={form.deskWorkBias}
+            onChange={(e) => update("deskWorkBias", e.target.checked)}
+            className="h-4 w-4 rounded border-primary/30 text-primary focus:ring-primary"
+          />
+          I often look at desk notes while studying (reduces false distractions)
+        </label>
         <p className="text-xs text-muted">
-          Higher thresholds are stricter. Keep distracted below focused.
+          Higher thresholds are stricter. Keep distracted below focused. Accessible mode
+          degrades scores gently when eye tracking is limited instead of marking you distracted.
         </p>
       </Card>
 

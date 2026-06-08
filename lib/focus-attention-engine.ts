@@ -1,4 +1,11 @@
-import type { FocusSampleState } from "@/lib/types";
+import type { FocusSampleState, FocusSensitivity } from "@/lib/types";
+import type { SignalMode } from "@/lib/focus-detection";
+import { detectSleepEyeState } from "@/lib/vision/sleep-eye-detection";
+import {
+  classifyStudyContext,
+  isDeskWorkMode,
+  type StudyContextMode,
+} from "@/lib/vision/study-context";
 
 export type AttentionFlags = {
   hasFace: boolean;
@@ -7,6 +14,8 @@ export type AttentionFlags = {
   lookingAway: boolean;
   headDown: boolean;
   drowsy: boolean;
+  studyContext?: StudyContextMode;
+  signalMode?: SignalMode;
 };
 
 export type AttentionDurations = {
@@ -23,8 +32,20 @@ export type AttentionMeasurements = {
   hasFace: boolean;
   /** raw EAR (~0.1–0.35 typical) */
   ear: number;
-  /** ~0–1 eye openness from TFJS eye model; gated until EAR shows sustained closure so blinks are neutral. */
-  eyeOpennessMl?: number | null;
+  earL?: number;
+  earR?: number;
+  /** Both eyes read shut (winks / one-eye occlusion do not set this). */
+  eyeLikelyClosed?: boolean;
+  /** ~0–1 eye openness from landmark blendshapes; gated until EAR shows sustained closure. */
+  eyeBlinkAssist?: number | null;
+  /** Per-eye blink blendshape scores (0 = open, higher = shut). */
+  eyeBlinkShutL?: number;
+  eyeBlinkShutR?: number;
+  eyeReliabilityL?: number;
+  eyeReliabilityR?: number;
+  signalMode?: SignalMode;
+  deskWorkBias?: boolean;
+  focusSensitivity?: FocusSensitivity;
   /** 0–100 */
   eyesScore: number;
   /** 0–100 */
@@ -80,8 +101,8 @@ export class FocusAttentionEngine {
   /** Consecutive ms eyes read “closed” from EAR/landmarks only (no TF eye model). */
   private eyesClosedEarMs = 0;
   private lastIsClosedEar = false;
-  /** TF model reports shut eyes — accumulates so sleep UX works when EAR is ambiguous. */
-  private mlAssistClosedMs = 0;
+  /** Blendshape assist reports shut eyes — accumulates when EAR is ambiguous. */
+  private blinkAssistClosedMs = 0;
   private lowEarConsecutiveMs = 0;
   private lookingAwayMs = 0;
   private headDownMs = 0;
@@ -120,7 +141,7 @@ export class FocusAttentionEngine {
     this.eyesClosedMs = 0;
     this.eyesClosedEarMs = 0;
     this.lastIsClosedEar = false;
-    this.mlAssistClosedMs = 0;
+    this.blinkAssistClosedMs = 0;
     this.lowEarConsecutiveMs = 0;
     this.lookingAwayMs = 0;
     this.headDownMs = 0;
@@ -152,29 +173,38 @@ export class FocusAttentionEngine {
 
     // --- Eye closure / drowsiness: align with Drowsiness_Detection.py (dlib 68 landmarks + EAR) ---
     // thresh = 0.25, frame_check = 20 consecutive low-EAR frames before alert.
-    const EAR_THRESH_SCRIPT = 0.25;
-    const EAR_OPEN_HYST = 0.28; // open only when clearly above thresh (debounce, avoids flicker)
+    const sensitivity = m.focusSensitivity ?? "balanced";
+    const earThreshBase =
+      sensitivity === "strict" ? 0.27 : sensitivity === "accessible" ? 0.22 : 0.25;
+    const tc = clamp01(m.trackingConfidence ?? 1);
+    const lowQuality = tc < 0.48;
+    const EAR_THRESH_SCRIPT = lowQuality ? earThreshBase - 0.02 : earThreshBase;
+    const EAR_OPEN_HYST = EAR_THRESH_SCRIPT + (lowQuality ? 0.04 : 0.03);
     const SCRIPT_FRAME_CHECK = 20;
     const DROWSY_CONSEC_MS = Math.round((1000 / 30) * SCRIPT_FRAME_CHECK);
     /** Fallback when landmarks are ambiguous (glasses/lighting) — still EAR-heavy */
     const EYE_CLOSED_SCORE_FALLBACK = 12;
-    /** Pretrained eye openness: only AFTER this many ms of EAR-closed streak (blinks stay shorter). */
-    const ML_APPLY_AFTER_EAR_CLOSED_MS = 620;
-    /** TF says shut for this long → treat as closed for sleep countdown even if EAR is stuck high. */
-    const ML_SLEEP_ASSIST_MS = 320;
-    const ML_CLOSED = 0.22;
-    const ML_OPEN = 0.35;
-    const LOOKING_AWAY_YAW = 0.55;
-    const LOOKING_AWAY_FACE_SCORE = 52;
-    const HEAD_DOWN_PITCH = 0.58;
-    const HEAD_DOWN_FACE_SCORE = 60;
+    /** Blendshape assist: only AFTER this many ms of EAR-closed streak (blinks stay shorter). */
+    const BLINK_ASSIST_AFTER_EAR_MS = 620;
+    const BLINK_ASSIST_SLEEP_MS = 320;
+    const BLINK_CLOSED = 0.35;
+    const BLINK_OPEN = 0.55;
+    const LOOKING_AWAY_YAW =
+      sensitivity === "accessible" ? 0.62 : sensitivity === "strict" ? 0.48 : 0.55;
+    const LOOKING_AWAY_FACE_SCORE =
+      sensitivity === "accessible" ? 46 : sensitivity === "strict" ? 58 : 52;
+    const HEAD_DOWN_PITCH =
+      sensitivity === "accessible" ? 0.68 : sensitivity === "strict" ? 0.52 : 0.58;
+    const HEAD_DOWN_FACE_SCORE =
+      sensitivity === "accessible" ? 52 : sensitivity === "strict" ? 66 : 60;
+    const headDownCapMs =
+      sensitivity === "accessible" ? 9_000 : sensitivity === "strict" ? 3_200 : 4_500;
 
     const hasFace = m.hasFace;
-    const tc = clamp01(m.trackingConfidence ?? 1);
     /** Brief sustained attentive frames suppress lingering drowsy / 55-score cap. */
     const ALERT_RECOVERY_DWELL_MS = 420;
     /** Accumulated engaged time needed before scores can climb into the ~90–100 band (raised each frame via `engagedNow`). */
-    const ENGAGED_FOR_TOP_MS = 11_000;
+    const ENGAGED_FOR_TOP_MS = 7_000;
     /** Shortcut: unmistakably alert again for a stretch + partial engaged credit → unlock top scores without waiting the full dwell. */
     const HIGH_SCORE_ALERT_FAST_MS = 1_650;
     const ENGAGED_PARTIAL_FOR_FAST_TOP_MS = 4_250;
@@ -189,19 +219,20 @@ export class FocusAttentionEngine {
       this.lowEarConsecutiveMs = 0;
     }
 
-    // Eyes closed: script rule is ear < 0.25; hysteresis so we don't flip open on one noisy frame
-    const earClosedScript = hasFace && m.ear > 0 && m.ear < EAR_THRESH_SCRIPT;
-    const earOpenScript = hasFace && m.ear >= EAR_OPEN_HYST;
-    const closedFallback =
-      hasFace &&
-      m.eyesScore <= EYE_CLOSED_SCORE_FALLBACK &&
-      m.ear > 0 &&
-      m.ear < 0.32;
+    const eyeRelL = m.eyeReliabilityL ?? 1;
+    const eyeRelR = m.eyeReliabilityR ?? 1;
+    const relMin = lowQuality ? 0.16 : 0.22;
+    const earL = m.earL ?? m.ear;
+    const earR = m.earR ?? m.ear;
+    const sleepEyes = detectSleepEyeState(earL, earR, eyeRelL, eyeRelR);
+    /** Sleep path: EAR-only, both eyes, strict closed threshold — no blendshapes. */
+    const sleepBothClosed = hasFace && sleepEyes.bothClosed;
+    const sleepAnyOpen = hasFace && sleepEyes.anyOpen;
 
     const isClosedEar = hasFace
       ? this.lastIsClosedEar
-        ? !(earOpenScript && !closedFallback)
-        : earClosedScript || closedFallback
+        ? !sleepAnyOpen
+        : sleepBothClosed
       : false;
     if (hasFace && dt > 0) {
       this.eyesClosedEarMs = isClosedEar ? this.eyesClosedEarMs + dt : 0;
@@ -210,37 +241,11 @@ export class FocusAttentionEngine {
     }
     this.lastIsClosedEar = isClosedEar;
 
-    const mlPenaltyOk =
-      hasFace && this.eyesClosedEarMs > ML_APPLY_AFTER_EAR_CLOSED_MS;
-    const mlClosedRaw =
-      hasFace && m.eyeOpennessMl != null && m.eyeOpennessMl <= ML_CLOSED;
-
-    if (hasFace && dt > 0) {
-      if (m.eyeOpennessMl != null && m.eyeOpennessMl <= ML_CLOSED) {
-        this.mlAssistClosedMs += dt;
-      } else if (m.eyeOpennessMl != null && m.eyeOpennessMl >= ML_OPEN) {
-        this.mlAssistClosedMs = 0;
-      } else if (m.eyeOpennessMl != null) {
-        this.mlAssistClosedMs = Math.max(0, this.mlAssistClosedMs - dt * 1.5);
-      }
-    } else if (!hasFace) {
-      this.mlAssistClosedMs = 0;
-    }
-
-    const mlSleepAssist =
+    // Sleep countdown — EAR-only both-eyes detector; release as soon as any eye reads open.
+    const sleepClosed = Boolean(
       hasFace &&
-      m.eyeOpennessMl != null &&
-      m.eyeOpennessMl <= ML_CLOSED &&
-      this.mlAssistClosedMs >= ML_SLEEP_ASSIST_MS;
-
-    // Sleep countdown + eyesClosed flag: EAR/landmarks OR sustained TF “shut” (fixes stuck EAR when lids are down).
-    // While already counting, release only when ear or TF clearly open (same spirit as previous hysteresis).
-    const sleepClosed = hasFace
-      ? this.eyesClosedMs > 0
-        ? closedFallback ||
-          !(earOpenScript || (m.eyeOpennessMl != null && m.eyeOpennessMl >= ML_OPEN))
-        : isClosedEar || mlSleepAssist
-      : false;
+        (this.eyesClosedMs > 0 ? !sleepAnyOpen : isClosedEar),
+    );
 
     // Low tracking confidence → landmark yaw/pitch are less trustworthy (blur / small face).
     const poseScale = 0.22 + 0.78 * tc;
@@ -285,13 +290,13 @@ export class FocusAttentionEngine {
     /** Current frame reads clearly attentive — trims false drowsy + 55-score cap linger. */
     const clearAlertEvidence =
       hasFace &&
-      tc >= 0.42 &&
+      tc >= 0.32 &&
       !eyesClosedUi &&
-      m.ear >= EAR_OPEN_HYST &&
-      m.eyesScore >= 58 &&
-      m.faceScore >= 55 &&
-      yawForPose <= 0.62 &&
-      pitchForPose <= 0.62;
+      (sleepEyes.bothOpen || sleepEyes.anyOpen || m.ear >= EAR_OPEN_HYST) &&
+      m.eyesScore >= 52 &&
+      m.faceScore >= 50 &&
+      yawForPose <= 0.65 &&
+      pitchForPose <= 0.65;
     if (hasFace && dt > 0) {
       this.alertRecoveryMs = clearAlertEvidence
         ? this.alertRecoveryMs + dt
@@ -305,15 +310,14 @@ export class FocusAttentionEngine {
     this.phoneDetectedMs = phoneDetected ? this.phoneDetectedMs + dt : 0;
     this.noFaceMs = hasFace ? 0 : this.noFaceMs + dt;
 
+    const signalMode = m.signalMode ?? "full";
+    const uncertainTracking = hasFace && tc < 0.28 && signalMode === "uncertain";
+
     // --- Blink detection + time-weighted PERCLOS (60s) ---
     const now = m.nowMs;
     const windowMs = 60_000;
     const cutoff = now - windowMs;
-    const nearClosed = hasFace
-      ? sleepClosed ||
-          (m.ear > 0 && m.ear < EAR_THRESH_SCRIPT) ||
-          (mlPenaltyOk && mlClosedRaw)
-      : false;
+    const nearClosed = Boolean(hasFace && sleepBothClosed);
 
     if (dt > 0 && hasFace) {
       // Time-weighted PERCLOS
@@ -375,23 +379,39 @@ export class FocusAttentionEngine {
     const longBlinkRatePerMin = this.longBlinkTimes.length;
     const noBlinkForMs = this.lastBlinkAtMs == null ? 0 : now - this.lastBlinkAtMs;
 
-    // Baseline heuristic (used as pseudo-labels for online ML)
-    const mlVeryShut =
+    const eyesOpen =
+      hasFace && !sleepClosed && (sleepEyes.bothOpen || sleepEyes.anyOpen || m.ear >= EAR_OPEN_HYST);
+
+    const studyContext = classifyStudyContext({
+      hasFace,
+      pitch: pitchForPose,
+      yaw: yawForPose,
+      eyesOpen,
+      eyesScore: m.eyesScore,
+      faceScore: m.faceScore,
+      phoneDetected,
+      drowsy: false,
+      noFaceMs: this.noFaceMs,
+      headDownMs: this.headDownMs,
+      lookingAwayMs: this.lookingAwayMs,
+      blinkRatePerMin,
+      trackingConfidence: tc,
+      deskWorkBias: m.deskWorkBias !== false,
+    });
+
+    const deskWork = isDeskWorkMode(studyContext);
+    const effectiveHeadDown = headDown && !deskWork;
+    const effectiveLookingAway =
+      lookingAway && !(studyContext === "gaze_shift" && this.lookingAwayMs < 4_500);
+
+    const drowsyHeuristic = Boolean(
       hasFace &&
-      mlPenaltyOk &&
-      m.eyeOpennessMl != null &&
-      m.eyeOpennessMl <= 0.18;
-    const drowsyHeuristic =
-      hasFace &&
-      (perclosRatio >= 0.22 ||
-        longBlinkRatePerMin >= 2 ||
-        this.lowEarConsecutiveMs >= DROWSY_CONSEC_MS ||
-        (perclosRatio >= 0.16 && noBlinkForMs >= 12_000) ||
-        (perclosRatio >= 0.14 && blinkRatePerMin <= 4) ||
-        (mlVeryShut &&
-          m.ear > 0 &&
-          m.ear < 0.3 &&
-          (m.eyesScore < 62 || mlClosedRaw)));
+        sleepEyes.confidence >= 0.2 &&
+        (perclosRatio >= 0.28 ||
+          longBlinkRatePerMin >= 3 ||
+          (sleepBothClosed && this.eyesClosedMs >= 3_000) ||
+          (perclosRatio >= 0.2 && noBlinkForMs >= 14_000)),
+    );
 
     // --- Online ML drowsiness probability ---
     // Features (all bounded / normalized):
@@ -471,12 +491,15 @@ export class FocusAttentionEngine {
     }
 
     // Final drowsy decision: ML probability OR heuristic (keeps behavior safe)
-    const drowsyRaw = hasFace && (drowsyProb >= 0.62 || drowsyHeuristic);
+    const drowsyRaw = Boolean(
+      hasFace && !uncertainTracking && (drowsyProb >= 0.62 || drowsyHeuristic),
+    );
     /** Brief sustained “awake again” wipes drowsy so the score isn’t welded to ~55 cap. */
-    const drowsy =
-      drowsyRaw &&
-      !inPostWakeGrace &&
-      this.alertRecoveryMs < ALERT_RECOVERY_DWELL_MS;
+    const drowsy = Boolean(
+      drowsyRaw && !inPostWakeGrace && this.alertRecoveryMs < ALERT_RECOVERY_DWELL_MS,
+    );
+
+    const studyContextFinal = drowsy ? "drowsy" : studyContext;
 
     // --- Stable eyes score (ignore normal blinks) ---
     // If eyes are "closed" only briefly (blink), do not penalize the Eyes bar/score.
@@ -494,19 +517,19 @@ export class FocusAttentionEngine {
     })();
     this.lastStableEyesScore = stableEyesScore;
 
-    // engaged time gate (only when everything is consistently "good")
+    // engaged time gate — desk_work allows head-down note-taking
     const engagedNow =
       hasFace &&
-      tc >= 0.52 &&
+      !uncertainTracking &&
+      tc >= 0.38 &&
       !phoneDetected &&
-      !lookingAway &&
-      !headDown &&
+      !effectiveLookingAway &&
+      !effectiveHeadDown &&
       !eyesClosedUi &&
       !drowsy &&
-      stableEyesScore >= 61 &&
-      m.faceScore >= 61 &&
-      m.yaw <= 0.55 &&
-      m.pitch <= 0.57;
+      stableEyesScore >= (deskWork ? 48 : 55) &&
+      m.faceScore >= (deskWork ? 48 : 55) &&
+      (deskWork || (m.yaw <= 0.58 && m.pitch <= 0.6));
 
     if (engagedNow) {
       const rateBoost =
@@ -523,17 +546,32 @@ export class FocusAttentionEngine {
       );
     }
 
-    // --- base score ---
-    // eyes dominates, but head pose + face stability matters for realism.
-    const stabilityPenalty =
-      (clamp100((Math.max(0, m.yaw - 0.25) / 0.75) * 35) +
-        clamp100((Math.max(0, m.pitch - 0.25) / 0.75) * 25)) *
-      tc;
+    // --- base score (tiered by signal mode) ---
+    const weights =
+      signalMode === "full"
+        ? { eyes: 0.5, pose: 0.3, presence: 0.2 }
+        : signalMode === "monocular"
+          ? { eyes: 0.42, pose: 0.33, presence: 0.25 }
+          : signalMode === "eyewear"
+            ? { eyes: 0.15, pose: 0.45, presence: 0.4 }
+            : signalMode === "pose_only"
+              ? { eyes: 0.08, pose: 0.35, presence: 0.57 }
+              : { eyes: 0.2, pose: 0.3, presence: 0.5 };
+
+    const poseComponent = Math.max(0, 100 - yawForPose * 52 - pitchForPose * 28);
+    const presenceComponent = tc * 100;
     let base =
-      stableEyesScore * 0.64 +
-      m.faceScore * 0.34 -
-      stabilityPenalty * 0.25 -
+      stableEyesScore * weights.eyes +
+      poseComponent * weights.pose +
+      presenceComponent * weights.presence -
       (drowsy ? 22 : 0);
+
+    if (deskWork && !drowsy && !phoneDetected) {
+      base = Math.max(base, 65);
+    }
+    if (uncertainTracking) {
+      base = base * 0.55 + 62 * 0.45;
+    }
     base = clamp100(base);
 
     // --- gating rules (hard realism constraints) ---
@@ -566,9 +604,14 @@ export class FocusAttentionEngine {
       state = "drifting";
     }
 
-    if (this.headDownMs >= 4_500) {
+    if (!deskWork && this.headDownMs >= headDownCapMs) {
       cap = Math.min(cap, 50);
       if (state !== "sleeping") state = "distracted";
+    }
+
+    if (uncertainTracking && state !== "sleeping" && state !== "away") {
+      cap = Math.min(cap, 72);
+      state = "drifting";
     }
 
     if (drowsy && state !== "sleeping") {
@@ -583,7 +626,7 @@ export class FocusAttentionEngine {
         this.engagedMs >= ENGAGED_PARTIAL_FOR_FAST_TOP_MS);
 
     /** Without full gate yet, soften ceiling so high-80s can already lean toward ~90 visually. */
-    const softPeakCap = highGateOk ? 100 : 91;
+    const softPeakCap = highGateOk ? 100 : 94;
     if (!highGateOk) cap = Math.min(cap, softPeakCap);
 
     // Compute target (post-cap)
@@ -626,9 +669,11 @@ export class FocusAttentionEngine {
         hasFace,
         phoneDetected,
         eyesClosed: eyesClosedUi,
-        lookingAway,
-        headDown,
+        lookingAway: effectiveLookingAway,
+        headDown: effectiveHeadDown,
         drowsy,
+        studyContext: studyContextFinal,
+        signalMode,
       },
       durations: {
         eyesClosedMs: this.eyesClosedMs,

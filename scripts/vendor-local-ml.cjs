@@ -17,6 +17,10 @@ const modelDir = path.join(root, "public/models/object_detector");
 const modelFile = path.join(modelDir, "efficientdet_lite2.tflite");
 const MODEL_URL =
   "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite2/float32/1/efficientdet_lite2.tflite";
+const faceModelDir = path.join(root, "public/models/face_landmarker");
+const faceModelFile = path.join(faceModelDir, "face_landmarker.task");
+const FACE_MODEL_URL =
+  "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
 
 function copyWasm() {
   if (!fs.existsSync(wasmSrc)) {
@@ -71,10 +75,57 @@ function downloadModelIfNeeded() {
   });
 }
 
+function downloadFileIfNeeded(url, destPath, tmpPath, minBytes, label) {
+  if (fs.existsSync(destPath) && fs.statSync(destPath).size > minBytes) {
+    console.log(`[vendor-local-ml] ${label} already present`);
+    return Promise.resolve();
+  }
+  fs.mkdirSync(path.dirname(destPath), { recursive: true });
+  return new Promise((resolve, reject) => {
+    const file = fs.createWriteStream(tmpPath);
+    https
+      .get(url, (res) => {
+        if (res.statusCode !== 200) {
+          file.close(() => fs.unlink(tmpPath, () => {}));
+          reject(new Error(`${label} HTTP ${res.statusCode}`));
+          return;
+        }
+        res.pipe(file);
+        file.on("finish", () => {
+          file.close(() => {
+            try {
+              fs.renameSync(tmpPath, destPath);
+            } catch (e) {
+              reject(e);
+              return;
+            }
+            console.log(`[vendor-local-ml] downloaded ${label}`);
+            resolve();
+          });
+        });
+      })
+      .on("error", (err) => {
+        file.close(() => fs.unlink(tmpPath, () => {}));
+        reject(err);
+      });
+  });
+}
+
+async function downloadFaceLandmarkerIfNeeded() {
+  return downloadFileIfNeeded(
+    FACE_MODEL_URL,
+    faceModelFile,
+    `${faceModelFile}.tmp`,
+    1024 * 1024,
+    "Face Landmarker (.task)",
+  );
+}
+
 async function main() {
   copyWasm();
   try {
     await downloadModelIfNeeded();
+    await downloadFaceLandmarkerIfNeeded();
   } catch (e) {
     console.warn("[vendor-local-ml] Could not fetch phone model:", e.message);
     console.warn(

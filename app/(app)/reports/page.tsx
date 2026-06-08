@@ -33,6 +33,10 @@ import {
   type Granularity,
   type RangePreset,
 } from "@/lib/analytics";
+import {
+  buildAnalyticsWorkbook,
+  downloadAnalyticsWorkbook,
+} from "@/lib/export-analytics-xlsx";
 import { getStreakState } from "@/lib/gamification/progression-storage";
 import { getSessionsForUser } from "@/lib/storage";
 import type { StudySession } from "@/lib/types";
@@ -159,6 +163,7 @@ export default function ReportsPage() {
   });
   const [granularity, setGranularity] = useState<Granularity>("daily");
   const [comparisonMode, setComparisonMode] = useState<ComparisonMode>("week");
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -226,29 +231,23 @@ export default function ReportsPage() {
     }
   }
 
-  function downloadReport() {
-    if (!analytics || !user || !range) return;
-    const payload = {
-      generatedAt: new Date().toISOString(),
-      userId: user.id,
-      range: {
-        preset: range.preset,
-        start: range.start.toISOString(),
-        end: range.end.toISOString(),
-      },
-      streak,
-      analytics,
-      insights,
-    };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], {
-      type: "application/json",
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `studytime-analytics-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+  async function downloadReport() {
+    if (!analytics || !user || !range || exporting) return;
+    setExporting(true);
+    try {
+      const buffer = await buildAnalyticsWorkbook({
+        userName: user.name,
+        range,
+        streak,
+        analytics,
+        insights,
+        sessions: rangeSessions,
+        granularity,
+      });
+      downloadAnalyticsWorkbook(buffer);
+    } finally {
+      setExporting(false);
+    }
   }
 
   // --- Loading state ---
@@ -321,8 +320,13 @@ export default function ReportsPage() {
             onPresetChange={handlePresetChange}
             onCustomChange={setCustom}
           />
-          <Button type="button" variant="secondary" onClick={downloadReport}>
-            Download report (.json)
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => void downloadReport()}
+            disabled={exporting || noRangeData}
+          >
+            {exporting ? "Preparing Excel…" : "Download report (.xlsx)"}
           </Button>
         </div>
       </div>
