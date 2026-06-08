@@ -59,8 +59,21 @@ export function useLibraryPresence(opts: {
   const optsRef = useRef(opts);
   optsRef.current = opts;
 
-  const broadcastSelf = useCallback(() => {
+  // Track the last-broadcast score so we only send when it moves ≥5 points,
+  // preventing a Supabase broadcast on every ~1 Hz UI update.
+  const lastBroadcastScoreRef = useRef<number>(-1);
+
+  const broadcastSelf = useCallback((force = false) => {
     if (!channelRef.current || !optsRef.current.userId) return;
+    const score = optsRef.current.focusScore;
+    // Skip the network round-trip when only the score changed by < 5 points —
+    // this avoids a broadcast on every ~1 Hz sample tick.
+    if (
+      !force &&
+      lastBroadcastScoreRef.current !== -1 &&
+      Math.abs(score - lastBroadcastScoreRef.current) < 5
+    ) return;
+    lastBroadcastScoreRef.current = score;
     const payload: BroadcastPayload = {
       userId: optsRef.current.userId,
       displayName: optsRef.current.displayName,
@@ -68,7 +81,7 @@ export function useLibraryPresence(opts: {
       seatId: optsRef.current.seatId,
       status: optsRef.current.status,
       focusPhase: optsRef.current.focusPhase,
-      focusScore: optsRef.current.focusScore,
+      focusScore: score,
       sessionDurationMs: optsRef.current.sessionDurationMs,
     };
     void channelRef.current.send({
@@ -118,12 +131,12 @@ export function useLibraryPresence(opts: {
       })
       .subscribe((status) => {
         if (status === "SUBSCRIBED") {
-          broadcastSelf();
+          broadcastSelf(true);
         }
       });
 
-    // Heartbeat to keep presence alive and propagate updates.
-    const heartbeatId = window.setInterval(broadcastSelf, HEARTBEAT_MS);
+    // Heartbeat: force-broadcast even without a score change so peers stay live.
+    const heartbeatId = window.setInterval(() => broadcastSelf(true), HEARTBEAT_MS);
 
     // Prune stale peers (gone > 60s without update).
     const pruneId = window.setInterval(() => {

@@ -49,9 +49,15 @@ type Props = {
 const AWAY_MS = 5000;
 /** Brief dropout hold — keeps face lock on noisy frames. */
 const FACE_HOLD_MS = 450;
-const PHONE_DETECT_EVERY_MS = 800;
-const ROI_SHARPNESS_EVERY_MS = 320;
+/** Runs phone OD every 1.5 s — lighter on low-spec CPUs. */
+const PHONE_DETECT_EVERY_MS = 1500;
+/** ROI sharpness check — every 500 ms is enough for low-spec. */
+const ROI_SHARPNESS_EVERY_MS = 500;
 const PARITY_LOG_EVERY_MS = 4_000;
+/** Inference interval: ~2.5 Hz — enough for sleep/focus, half the CPU of 4 Hz. */
+const TICK_INTERVAL_MS = 400;
+/** Cap canvas DPR so HUD never renders at 2× on retina low-spec machines. */
+const MAX_HUD_DPR = 1.5;
 /** Vendored from `node_modules/@mediapipe/tasks-vision/wasm` via `npm run vendor:ml`. */
 const MEDIAPIPE_VISION_WASM = "/mediapipe/wasm";
 const PHONE_OD_MODEL_URL = "/models/object_detector/efficientdet_lite2.tflite";
@@ -117,7 +123,10 @@ function drawLandmarkerHud(
   const rect = wrap.getBoundingClientRect();
   const w = rect.width;
   const h = rect.height;
-  const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+  const dpr = Math.min(
+    typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1,
+    MAX_HUD_DPR,
+  );
   canvas.width = Math.max(1, Math.floor(w * dpr));
   canvas.height = Math.max(1, Math.floor(h * dpr));
   canvas.style.width = `${w}px`;
@@ -433,9 +442,11 @@ export function FocusCamera({
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
             facingMode: "user",
-            width: { ideal: 1280, min: 640 },
-            height: { ideal: 720, min: 480 },
-            frameRate: { ideal: 24, max: 30 },
+            // 640×480 is sufficient for face landmark inference and
+            // keeps CPU/memory well within low-spec laptop limits.
+            width: { ideal: 640, max: 1280 },
+            height: { ideal: 480, max: 720 },
+            frameRate: { ideal: 15, max: 24 },
           },
           audio: false,
         });
@@ -491,12 +502,20 @@ export function FocusCamera({
   useEffect(() => {
     if (!enabled || error || !modelsReady) return;
 
+    // Single-flight guard: if the previous async tick is still running
+    // (e.g. inference stalled > TICK_INTERVAL_MS on a slow CPU) skip this tick
+    // entirely rather than queuing another concurrent inference.
+    let tickInFlight = false;
+
     const tick = async () => {
+      if (tickInFlight) return;
+      tickInFlight = true;
       const video = videoRef.current;
       const canvas = canvasRef.current;
-      if (!video || video.readyState < 2) return;
+      if (!video || video.readyState < 2) { tickInFlight = false; return; }
       if (!active) {
         clearHud(canvas);
+        tickInFlight = false;
         return;
       }
 
@@ -651,11 +670,13 @@ export function FocusCamera({
           if (canvas && video) {
             drawLandmarkerHud(canvas, video, mpFrame, phoneBoxRef.current);
           }
-          setSignalModeUi(base.signalMode ?? "full");
+          const nextMode = base.signalMode ?? "full";
+          // Only trigger a React re-render when the mode label actually changes.
+          setSignalModeUi((prev) => (prev === nextMode ? prev : nextMode));
         } else {
           lastSharpNormRef.current = 0.55;
           clearHud(canvas);
-          setSignalModeUi("full");
+          setSignalModeUi((prev) => (prev === "full" ? prev : "full"));
         }
 
         // Dev parity: compare MediaPipe vs face-api when legacy flag is on.
@@ -800,12 +821,14 @@ export function FocusCamera({
           yaw: 0,
           pitch: 0,
         });
+      } finally {
+        tickInFlight = false;
       }
     };
 
     const id = window.setInterval(() => {
       void tick();
-    }, 240);
+    }, TICK_INTERVAL_MS);
     return () => {
       window.clearInterval(id);
       // eslint-disable-next-line react-hooks/exhaustive-deps -- latest node on unmount

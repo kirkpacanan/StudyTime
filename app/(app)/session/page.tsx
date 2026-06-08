@@ -391,9 +391,14 @@ export default function SessionPage() {
 
   useEffect(() => () => resetLive(), [resetLive]);
 
+  // Timestamp of the last time we pushed UI state updates from onSample.
+  // Analytics (samplesRef) still run on every tick; only the rendered numbers
+  // are throttled to ~1 Hz so the React tree doesn't churn at 2.5 Hz.
+  const lastUiUpdateMsRef = useRef<number>(0);
+  const UI_THROTTLE_MS = 900;
+
   // Focus sample handler
   const onSample = useCallback((sample: FocusFrameResult) => {
-    setLastSample(sample);
     const flags = (sample as FocusFrameResult & {
       flags?: LiveFocusFlags;
     }).flags;
@@ -401,15 +406,22 @@ export default function SessionPage() {
       durations?: { eyesClosedMs?: number; lookingAwayMs?: number; headDownMs?: number; phoneDetectedMs?: number };
     }).durations;
 
-    setLiveFocusFlags({
-      phoneDetected: flags?.phoneDetected,
-      lookingAway: flags?.lookingAway,
-      headDown: flags?.headDown,
-      eyesClosed: flags?.eyesClosed,
-      hasFace: flags?.hasFace ?? sample.hasFace,
-    });
-    setEyesClosedMs(durations?.eyesClosedMs ?? 0);
-    setAlarmRunning(alarmRef.current?.isRunning() ?? false);
+    // Throttle purely visual state updates so the React tree
+    // (panels, context, 3D badge) re-renders at ~1 Hz on low-spec machines.
+    const nowMs = Date.now();
+    if (nowMs - lastUiUpdateMsRef.current >= UI_THROTTLE_MS) {
+      lastUiUpdateMsRef.current = nowMs;
+      setLastSample(sample);
+      setLiveFocusFlags({
+        phoneDetected: flags?.phoneDetected,
+        lookingAway: flags?.lookingAway,
+        headDown: flags?.headDown,
+        eyesClosed: flags?.eyesClosed,
+        hasFace: flags?.hasFace ?? sample.hasFace,
+      });
+      setEyesClosedMs(durations?.eyesClosedMs ?? 0);
+      setAlarmRunning(alarmRef.current?.isRunning() ?? false);
+    }
 
     if (!running || paused || phaseRef.current !== "focus") return;
     const sampleFlags = (sample as FocusFrameResult & {

@@ -1,4 +1,6 @@
-import ExcelJS from "exceljs";
+// ExcelJS is ~400 KB — lazy-import it only when the user clicks "Download".
+// This keeps it out of the initial reports bundle entirely.
+import type ExcelJS from "exceljs";
 import type {
   AnalyticsBundle,
   DateRange,
@@ -435,7 +437,9 @@ function addInsightsSheet(wb: ExcelJS.Workbook, insights: Insight[]) {
 export async function buildAnalyticsWorkbook(
   input: AnalyticsExportInput,
 ): Promise<ArrayBuffer> {
-  const wb = new ExcelJS.Workbook();
+  // Dynamic import: ExcelJS is only loaded when the user actually exports.
+  const { default: ExcelJSLib } = await import("exceljs");
+  const wb = new ExcelJSLib.Workbook() as InstanceType<typeof ExcelJS.Workbook>;
   wb.creator = "StudyTime";
   wb.created = new Date();
   wb.modified = new Date();

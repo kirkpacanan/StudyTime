@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import type { FocusFrameResult } from "@/lib/focus-detection";
 import type { FocusSensitivity } from "@/lib/types";
 import { FocusCameraPanel } from "./FocusCameraPanel";
@@ -50,8 +51,11 @@ const RIGHT_COL_W = 196;
  *
  * Camera:        top-left, below the room info pill
  * Focus + Timer: top-right column, same inset as Exit (right-4), snug stack
+ *
+ * Wrapped in React.memo so the panel tree only re-renders when its own props
+ * change, not on every unrelated SessionPage state update.
  */
-export function SessionPanelsLayer(props: SessionPanelsLayerProps) {
+export const SessionPanelsLayer = memo(function SessionPanelsLayer(props: SessionPanelsLayerProps) {
   return (
     <>
       {/* Live Vision — top-left */}
@@ -96,4 +100,4 @@ export function SessionPanelsLayer(props: SessionPanelsLayerProps) {
       </div>
     </>
   );
-}
+});

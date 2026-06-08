@@ -40,7 +40,16 @@ const nextConfig = {
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: supabasePublishable,
   },
   experimental: {
-    optimizePackageImports: ["lucide-react", "framer-motion", "recharts"],
+    optimizePackageImports: [
+      "lucide-react",
+      "framer-motion",
+      "recharts",
+      // Three.js ecosystem — tree-shake to only the imported symbols.
+      "three",
+      "@react-three/drei",
+      // MediaPipe — large package; only import what is used.
+      "@mediapipe/tasks-vision",
+    ],
   },
   transpilePackages: ["@react-three/fiber", "@react-three/drei"],
   webpack: (config, { isServer }) => {

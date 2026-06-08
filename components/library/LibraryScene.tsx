@@ -68,8 +68,16 @@ export function LibraryScene({
 
   return (
     <Canvas
-      shadows
-      gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.15 }}
+      shadows={false}
+      // Cap pixel ratio so low-spec GPUs never render at full retina resolution.
+      // The scene looks identical at 1× and significantly faster on integrated GPUs.
+      dpr={[1, 1.5]}
+      gl={{
+        antialias: false,
+        powerPreference: "low-power",
+        toneMapping: THREE.ACESFilmicToneMapping,
+        toneMappingExposure: 1.15,
+      }}
       style={{ width: "100%", height: "100%", background: "#1a1206" }}
     >
       <color attach="background" args={["#1a1206"]} />
@@ -90,12 +98,15 @@ export function LibraryScene({
       <Suspense fallback={null}>
         <LibraryEnvironment />
 
+        {/* ContactShadows replaces the GPU shadow maps we disabled above.
+            Smaller resolution + reduced blur keeps integrated GPUs fast. */}
         <ContactShadows
           position={[1, 0.01, 0]}
-          opacity={0.45}
-          scale={28}
-          blur={2.5}
-          far={6}
+          opacity={0.35}
+          scale={22}
+          blur={1.2}
+          far={5}
+          resolution={256}
           color="#3d2b1a"
         />
 
