@@ -14,9 +14,12 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import type { FocusFrameResult } from "@/lib/focus-detection";
+import { LibraryIconButton, LibraryPanelHeader } from "./SessionChrome";
 import type { FocusSampleState } from "@/lib/types";
 
 const SLEEP_ALARM_MS = 10_000;
+const PANEL_W = 196;
+const PANEL_W_MIN = 84;
 
 type FocusFlags = {
   phoneDetected?: boolean;
@@ -45,10 +48,10 @@ function stateLabel(state: FocusSampleState): string {
 }
 
 function ringColor(state: FocusSampleState, phase: "focus" | "break") {
-  if (phase === "break") return "text-emerald-400";
-  if (state === "focused") return "text-sky-400";
-  if (state === "drifting") return "text-amber-400";
-  return "text-red-400";
+  if (phase === "break") return "text-emerald-400/90";
+  if (state === "focused") return "text-cyan-400/90";
+  if (state === "drifting") return "text-amber-400/90";
+  return "text-red-400/90";
 }
 
 function ProgressRing({
@@ -56,7 +59,7 @@ function ProgressRing({
   size,
   stroke,
   colorClass,
-  trackClass = "text-slate-700/80",
+  trackClass = "text-white/[0.06]",
   children,
 }: {
   value: number;
@@ -108,11 +111,11 @@ function StatBar({ label, value, colorClass }: { label: string; value: number; c
   const v = Math.min(100, Math.max(0, Math.round(value)));
   return (
     <div className="space-y-1">
-      <div className="flex items-center justify-between text-[10px] font-semibold text-slate-400">
+      <div className="flex items-center justify-between text-[9px] font-medium uppercase tracking-wider text-slate-500">
         <span>{label}</span>
-        <span className="tabular-nums text-white">{v}%</span>
+        <span className="tabular-nums text-slate-300">{v}%</span>
       </div>
-      <div className="h-1 overflow-hidden rounded-full bg-white/10">
+      <div className="h-px overflow-hidden rounded-full bg-white/[0.08]">
         <div
           className={cn("h-full rounded-full transition-[width] duration-700 ease-out", colorClass)}
           style={{ width: `${v}%` }}
@@ -134,7 +137,6 @@ export function FocusBreakdownPanel({
   const [minimized, setMinimized] = useState(false);
   const [displayScore, setDisplayScore] = useState(Math.round(sample.score));
 
-  // Smooth displayed score — updates every ~800ms to reduce visual noise
   useEffect(() => {
     const target = Math.round(sample.score);
     const id = window.setTimeout(() => setDisplayScore(target), 400);
@@ -150,164 +152,167 @@ export function FocusBreakdownPanel({
 
   const alerts = [
     flags?.phoneDetected && phoneDetectionEnabled
-      ? { icon: <Smartphone className="h-3 w-3" />, label: "Phone", tone: "text-red-300 bg-red-500/15 border-red-500/30" }
+      ? { icon: <Smartphone className="h-2.5 w-2.5" />, label: "Phone", tone: "text-red-200 bg-red-500/12 border-red-500/20" }
       : null,
     flags?.lookingAway
-      ? { icon: <EyeOff className="h-3 w-3" />, label: "Away", tone: "text-amber-300 bg-amber-500/15 border-amber-500/30" }
+      ? { icon: <EyeOff className="h-2.5 w-2.5" />, label: "Away", tone: "text-amber-200 bg-amber-500/12 border-amber-500/20" }
       : null,
     flags?.headDown
-      ? { icon: <ArrowDown className="h-3 w-3" />, label: "Head down", tone: "text-amber-300 bg-amber-500/15 border-amber-500/30" }
+      ? { icon: <ArrowDown className="h-2.5 w-2.5" />, label: "Head down", tone: "text-amber-200 bg-amber-500/12 border-amber-500/20" }
       : null,
     flags?.eyesClosed
-      ? { icon: <Eye className="h-3 w-3" />, label: "Eyes closed", tone: "text-red-300 bg-red-500/15 border-red-500/30" }
+      ? { icon: <Eye className="h-2.5 w-2.5" />, label: "Eyes closed", tone: "text-red-200 bg-red-500/12 border-red-500/20" }
       : null,
     alarmRunning
-      ? { icon: <Moon className="h-3 w-3" />, label: "Wake up!", tone: "text-red-200 bg-red-600/30 border-red-400/50 animate-pulse" }
+      ? { icon: <Moon className="h-2.5 w-2.5" />, label: "Wake up!", tone: "text-red-100 bg-red-600/25 border-red-400/35 animate-pulse" }
       : null,
   ].filter(Boolean) as { icon: React.ReactNode; label: string; tone: string }[];
 
   const focusRingColor = ringColor(sample.state, phase);
+  const panelWidth = minimized && phase !== "break" ? PANEL_W_MIN : PANEL_W;
 
-  if (phase === "break") {
-    return (
-      <div className="library-glass-panel fixed right-4 top-24 z-[60] w-44 border-emerald-500/20 p-3">
-        <div className="flex flex-col items-center gap-2 text-center">
-          <ProgressRing value={100} size={88} stroke={6} colorClass="text-emerald-400">
-            <Coffee className="h-5 w-5 text-emerald-400" />
-            <span className="text-[10px] font-semibold text-emerald-300">Break</span>
-          </ProgressRing>
-          <p className="text-[10px] text-slate-400">Focus tracking paused</p>
-        </div>
-      </div>
-    );
-  }
+  const statusBadge = (
+    <span
+      className={cn(
+        "rounded-md px-1.5 py-0.5 text-[8px] font-medium uppercase tracking-wider ring-1",
+        sample.state === "focused"
+          ? "bg-cyan-500/15 text-cyan-100 ring-cyan-400/20"
+          : sample.state === "drifting"
+          ? "bg-amber-500/15 text-amber-100 ring-amber-400/20"
+          : "bg-red-500/15 text-red-100 ring-red-400/20",
+      )}
+    >
+      {paused ? "Paused" : stateLabel(sample.state)}
+    </span>
+  );
 
-  if (minimized) {
-    return (
-      <div className="library-glass-panel fixed right-4 top-24 z-[60] flex flex-col items-center gap-2 p-2.5">
-        <button
-          type="button"
-          onClick={() => setMinimized(false)}
-          className="rounded-lg p-1 text-slate-500 transition hover:bg-white/10 hover:text-white"
-          aria-label="Expand focus panel"
-        >
-          <ChevronDown className="h-4 w-4" />
-        </button>
-        <ProgressRing value={displayScore} size={72} stroke={5} colorClass={focusRingColor}>
-          <span className="text-lg font-bold tabular-nums text-white">{displayScore}</span>
-          <span className="text-[8px] font-semibold uppercase tracking-wide text-slate-500">Focus</span>
-        </ProgressRing>
-        <ProgressRing
-          value={sleepPct}
-          size={52}
-          stroke={4}
-          colorClass={sleepPct > 60 ? "text-red-400" : sleepPct > 20 ? "text-amber-400" : "text-slate-500"}
-        >
-          <Moon className={cn("h-3 w-3", sleepPct > 20 ? "text-amber-300" : "text-slate-500")} />
-          <span className="text-[8px] tabular-nums text-slate-400">
-            {eyesClosedMs > 300 ? `${sleepSecs}s` : "Sleep"}
-          </span>
-        </ProgressRing>
-      </div>
-    );
-  }
+  const shrinkRight = minimized && phase !== "break";
 
   return (
-    <div className="library-glass-panel fixed right-4 top-24 z-[60] w-52">
-      {/* Header */}
-      <div className="library-glass-header flex items-center justify-between px-3 py-2">
-        <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-          Focus
-        </span>
-        <div className="flex items-center gap-1">
-          <span
-            className={cn(
-              "rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide",
-              sample.state === "focused"
-                ? "bg-sky-500/20 text-sky-300"
-                : sample.state === "drifting"
-                ? "bg-amber-500/20 text-amber-300"
-                : "bg-red-500/20 text-red-300",
-            )}
-          >
-            {paused ? "Paused" : stateLabel(sample.state)}
-          </span>
-          <button
-            type="button"
-            onClick={() => setMinimized(true)}
-            className="rounded p-1 text-slate-500 transition hover:bg-white/10 hover:text-white"
-            aria-label="Minimize focus panel"
-          >
-            <ChevronUp className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      </div>
-
-      <div className="flex flex-col items-center gap-3 px-3 py-4">
-        {/* Main focus ring */}
-        <ProgressRing value={displayScore} size={100} stroke={7} colorClass={focusRingColor}>
-          <span className="text-2xl font-bold tabular-nums text-white">{displayScore}%</span>
-          <span className="text-[9px] font-semibold uppercase tracking-widest text-slate-500">
-            Focus
-          </span>
-        </ProgressRing>
-
-        {/* Sleep watch ring */}
-        <div className="flex w-full items-center gap-3">
-          <ProgressRing
-            value={sleepPct}
-            size={64}
-            stroke={5}
-            colorClass={
-              alarmRunning
-                ? "text-red-500 drop-shadow-[0_0_8px_rgba(239,68,68,0.6)]"
-                : sleepPct > 50
-                ? "text-amber-400"
-                : "text-violet-400/70"
+    <div
+      className={cn(
+        "library-glass-panel pointer-events-auto overflow-hidden transition-[width] duration-200 ease-out",
+        shrinkRight ? "ml-auto" : "w-full",
+      )}
+      style={{ width: shrinkRight ? panelWidth : undefined }}
+    >
+      {phase === "break" ? (
+        <>
+          <LibraryPanelHeader
+            icon={<Coffee className="h-3 w-3 shrink-0 text-emerald-300/90" />}
+            title="Break"
+            subtitle="Tracking paused"
+          />
+          <div className="flex flex-col items-center gap-2 px-3 py-3">
+            <ProgressRing value={100} size={72} stroke={3} colorClass="text-emerald-400/90">
+              <Coffee className="h-4 w-4 text-emerald-300/90" />
+            </ProgressRing>
+            <p className="text-[10px] text-slate-500">Rest & recharge</p>
+          </div>
+        </>
+      ) : minimized ? (
+        <>
+          <LibraryPanelHeader
+            icon={<ScanFace className="h-3 w-3 shrink-0 text-cyan-300/90" />}
+            title=""
+            actions={
+              <LibraryIconButton label="Expand focus panel" onClick={() => setMinimized(false)}>
+                <ChevronDown className="h-3 w-3" />
+              </LibraryIconButton>
             }
-          >
-            <Moon className={cn("h-3.5 w-3.5", sleepPct > 20 ? "text-amber-300" : "text-violet-300")} />
-            <span className="text-[9px] tabular-nums font-semibold text-slate-300">
-              {eyesClosedMs > 200 ? `${sleepSecs}s` : "0s"}
-            </span>
-          </ProgressRing>
-          <div className="min-w-0 flex-1">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-violet-300">
-              Sleep watch
-            </p>
-            <p className="mt-0.5 text-[10px] leading-snug text-slate-500">
-              {alarmRunning
-                ? "Alarm active — wake up!"
-                : eyesClosedMs > 200
-                ? `${sleepRemaining}s until alarm`
-                : "Tracks closed eyes · alarm at 10s"}
-            </p>
+          />
+          <div className="flex flex-col items-center gap-2 px-2 pb-2.5 pt-1">
+            <ProgressRing value={displayScore} size={56} stroke={3} colorClass={focusRingColor}>
+              <span className="text-sm font-semibold tabular-nums text-slate-50">{displayScore}</span>
+            </ProgressRing>
+            <ProgressRing
+              value={sleepPct}
+              size={40}
+              stroke={2}
+              colorClass={sleepPct > 60 ? "text-red-400/90" : sleepPct > 20 ? "text-amber-400/90" : "text-slate-500/80"}
+            >
+              <Moon className={cn("h-2.5 w-2.5", sleepPct > 20 ? "text-amber-300/90" : "text-slate-500")} />
+            </ProgressRing>
           </div>
-        </div>
+        </>
+      ) : (
+        <>
+          <LibraryPanelHeader
+            icon={<ScanFace className="h-3 w-3 shrink-0 text-cyan-300/90" />}
+            title="Focus"
+            actions={
+              <>
+                {statusBadge}
+                <LibraryIconButton label="Minimize focus panel" onClick={() => setMinimized(true)}>
+                  <ChevronUp className="h-3 w-3" />
+                </LibraryIconButton>
+              </>
+            }
+          />
 
-        {/* Breakdown bars */}
-        <div className="w-full space-y-2.5 border-t border-white/8 pt-3 backdrop-blur-sm">
-          <StatBar label="Eyes" value={sample.eyesScore} colorClass="bg-gradient-to-r from-cyan-400 to-sky-500" />
-          <StatBar label="Face" value={sample.faceScore} colorClass="bg-gradient-to-r from-emerald-400 to-teal-500" />
-        </div>
-
-        {alerts.length > 0 && (
-          <div className="flex w-full flex-wrap gap-1 border-t border-white/8 pt-2">
-            {alerts.map((a) => (
-              <span
-                key={a.label}
-                className={cn(
-                  "inline-flex items-center gap-0.5 rounded-full border px-1.5 py-0.5 text-[9px] font-semibold",
-                  a.tone,
-                )}
-              >
-                {a.icon}
-                {a.label}
+          <div className="flex flex-col items-center gap-2.5 px-3 py-3">
+            <ProgressRing value={displayScore} size={88} stroke={3} colorClass={focusRingColor}>
+              <span className="text-xl font-semibold tabular-nums tracking-tight text-slate-50">
+                {displayScore}%
               </span>
-            ))}
+            </ProgressRing>
+
+            <div className="flex w-full items-center gap-2.5">
+              <ProgressRing
+                value={sleepPct}
+                size={48}
+                stroke={2}
+                colorClass={
+                  alarmRunning
+                    ? "text-red-400/90"
+                    : sleepPct > 50
+                    ? "text-amber-400/90"
+                    : "text-violet-400/60"
+                }
+              >
+                <Moon className={cn("h-2.5 w-2.5", sleepPct > 20 ? "text-amber-300/80" : "text-violet-300/70")} />
+                <span className="text-[8px] tabular-nums text-slate-500">
+                  {eyesClosedMs > 200 ? `${sleepSecs}s` : "0s"}
+                </span>
+              </ProgressRing>
+              <div className="min-w-0 flex-1">
+                <p className="text-[9px] font-medium uppercase tracking-wider text-slate-500">
+                  Sleep watch
+                </p>
+                <p className="mt-0.5 text-[10px] leading-snug text-slate-400">
+                  {alarmRunning
+                    ? "Alarm active"
+                    : eyesClosedMs > 200
+                    ? `${sleepRemaining}s left`
+                    : "10s threshold"}
+                </p>
+              </div>
+            </div>
+
+            <div className="w-full space-y-2 border-t border-white/[0.06] pt-2.5">
+              <StatBar label="Eyes" value={sample.eyesScore} colorClass="bg-cyan-400/80" />
+              <StatBar label="Face" value={sample.faceScore} colorClass="bg-emerald-400/80" />
+            </div>
+
+            {alerts.length > 0 && (
+              <div className="flex w-full flex-wrap gap-1 border-t border-white/[0.06] pt-2">
+                {alerts.map((a) => (
+                  <span
+                    key={a.label}
+                    className={cn(
+                      "inline-flex items-center gap-0.5 rounded-md border px-1.5 py-0.5 text-[8px] font-medium uppercase tracking-wide",
+                      a.tone,
+                    )}
+                  >
+                    {a.icon}
+                    {a.label}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </>
+      )}
     </div>
   );
 }

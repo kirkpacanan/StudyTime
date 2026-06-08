@@ -4,7 +4,7 @@ import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Clock, BookOpen, ChevronRight, Sparkles, Users, Check, X } from "lucide-react";
+import { Clock, BookOpen, ChevronRight, Sparkles, Check, ArrowLeft, X } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useSessionLive } from "@/contexts/session-live-context";
 import { useProgression } from "@/contexts/progression-context";
@@ -16,9 +16,14 @@ import type { FocusFrameResult } from "@/lib/focus-detection";
 import { getSettings } from "@/lib/storage";
 import type { FocusSample, SessionEvent, UserSettings } from "@/lib/types";
 import { cn } from "@/lib/cn";
-import { SessionTimerPanel } from "@/components/library/SessionTimerPanel";
-import { FocusBreakdownPanel } from "@/components/library/FocusBreakdownPanel";
-import { LibraryHUD } from "@/components/library/LibraryHUD";
+import { SessionPanelsLayer } from "@/components/library/SessionPanelsLayer";
+import { SessionTopBar } from "@/components/library/SessionTopBar";
+import {
+  LibraryIconButton,
+  LibraryPanelHeader,
+  SessionFlowHint,
+  SessionStepIndicator,
+} from "@/components/library/SessionChrome";
 import { AvatarCreator } from "@/components/library/AvatarCreator";
 import { useLibraryPresence } from "@/hooks/useLibraryPresence";
 import type { LibraryFlowState } from "@/hooks/useLibraryPresence";
@@ -29,14 +34,6 @@ import type { PresenceStatus } from "@/lib/social/types";
 const LibraryScene = dynamic(
   () => import("@/components/library/LibraryScene").then((m) => ({ default: m.LibraryScene })),
   { ssr: false, loading: () => <LibraryLoadingScreen /> },
-);
-
-const FocusCameraPanel = dynamic(
-  () =>
-    import("@/components/library/FocusCameraPanel").then((m) => ({
-      default: m.FocusCameraPanel,
-    })),
-  { ssr: false },
 );
 
 type Phase = "focus" | "break";
@@ -142,10 +139,10 @@ function fmt(sec: number): string {
 function LibraryLoadingScreen() {
   return (
     <div className="flex h-screen w-screen flex-col items-center justify-center gap-4 bg-[#1a1206]">
-      <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-900/40 border border-amber-700/30">
-        <BookOpen className="h-8 w-8 text-amber-400 animate-pulse" />
+      <div className="library-glass-panel flex h-16 w-16 items-center justify-center">
+        <BookOpen className="h-8 w-8 animate-pulse text-amber-300" />
       </div>
-      <p className="text-sm text-amber-200/60">Loading virtual library…</p>
+      <p className="text-sm text-slate-300">Loading virtual library…</p>
     </div>
   );
 }
@@ -218,6 +215,7 @@ export default function SessionPage() {
   const [alarmRunning, setAlarmRunning] = useState(false);
 
   const [summary, setSummary] = useState<SessionEndSummary | null>(null);
+  const panelsLayerRef = useRef<HTMLDivElement>(null);
 
   // Load settings
   useEffect(() => {
@@ -497,7 +495,7 @@ export default function SessionPage() {
   }
 
   return (
-    <div className="fixed inset-0 z-50 overflow-hidden bg-[#1a1206]">
+    <div className="fixed inset-0 z-50 bg-[#1a1206]">
       {/* 3D Library Scene — full screen */}
       <div className="absolute inset-0">
         <LibraryScene
@@ -518,19 +516,12 @@ export default function SessionPage() {
         />
       </div>
 
-      {/* === HUD (top-left) === */}
-      <LibraryHUD studyingCount={studyingCount + 1} />
-
-      {/* === Exit to dashboard === */}
+      {/* === Top bar: room info + dashboard exit === */}
       {!showAvatarCreator && !summary && (
-        <button
-          type="button"
-          onClick={leaveToDashboard}
-          className="library-glass-panel fixed right-4 top-4 z-[250] flex h-10 w-10 items-center justify-center text-slate-400 transition hover:bg-white/10 hover:text-white"
-          aria-label="Back to dashboard"
-        >
-          <X className="h-5 w-5" />
-        </button>
+        <SessionTopBar
+          studyingCount={studyingCount + 1}
+          onExit={leaveToDashboard}
+        />
       )}
 
       {/* === Avatar Creator (full-screen, new users only) === */}
@@ -553,15 +544,29 @@ export default function SessionPage() {
             transition={{ duration: 0.6 }}
             className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3"
           >
-            <div className="rounded-2xl border border-amber-500/20 bg-black/60 px-8 py-6 text-center backdrop-blur-xl">
-              <BookOpen className="mx-auto mb-3 h-10 w-10 text-amber-400" />
-              <h1 className="text-2xl font-bold text-white">Virtual Library</h1>
-              <p className="mt-1 text-sm text-amber-200/60">Click an empty seat to begin</p>
+            <div className="library-glass-panel border-amber-500/20 px-8 py-6 text-center">
+              <BookOpen className="mx-auto mb-3 h-10 w-10 text-amber-300" />
+              <h1 className="text-2xl font-bold text-slate-50">Virtual Library</h1>
+              <p className="mt-1 text-sm text-slate-300">Find a seat and start your focus session</p>
             </div>
           </motion.div>
         )}
 
         {/* SEAT SELECT — instruction banner */}
+        {(flowState === "seat_select" || flowState === "duration_select") && (
+          <motion.div
+            key="session_steps"
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            className="pointer-events-none absolute inset-x-0 top-[5.25rem] z-[60] flex justify-center px-4"
+          >
+            <SessionStepIndicator
+              active={flowState === "seat_select" ? "seat" : "duration"}
+            />
+          </motion.div>
+        )}
+
         {flowState === "seat_select" && (
           <motion.div
             key="seat_select"
@@ -570,14 +575,9 @@ export default function SessionPage() {
             exit={{ opacity: 0, y: -10 }}
             className="pointer-events-none absolute inset-x-0 bottom-6 z-[60] flex justify-center px-4"
           >
-            <div className="flex items-center gap-3 rounded-2xl border border-emerald-500/30 bg-slate-900/90 px-6 py-3 shadow-2xl backdrop-blur-xl">
-              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-400">
-                <BookOpen className="h-4 w-4" />
-              </span>
-              <span className="text-sm font-medium text-white">
-                Click a glowing seat to sit down
-              </span>
-            </div>
+            <SessionFlowHint icon={<BookOpen className="h-4 w-4" />}>
+              Click a glowing seat to sit down
+            </SessionFlowHint>
           </motion.div>
         )}
 
@@ -588,7 +588,7 @@ export default function SessionPage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="absolute inset-0 z-[200] isolate flex items-center justify-center bg-black/55 px-4 backdrop-blur-md"
+            className="absolute inset-0 z-[200] isolate flex items-center justify-center bg-black/50 px-4 pt-16 backdrop-blur-md"
           >
             <motion.div
               initial={{ opacity: 0, scale: 0.96, y: 8 }}
@@ -597,29 +597,30 @@ export default function SessionPage() {
               transition={{ duration: 0.2 }}
               className="relative w-full max-w-md"
             >
-              <div className="overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-b from-slate-900 to-slate-950 shadow-2xl ring-1 ring-white/5">
-                {/* Header */}
-                <div className="border-b border-white/8 bg-sky-950/40 px-6 py-5">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-sky-500/20 ring-1 ring-sky-400/20">
-                      <Clock className="h-5 w-5 text-sky-400" />
-                    </div>
-                    <div className="min-w-0">
-                      <h2 className="text-lg font-bold text-white">Choose study duration</h2>
-                      <p className="mt-0.5 truncate text-sm text-slate-400">
-                        {selectedSeat
-                          ? `Seated at ${selectedSeat.label} — ready to focus`
-                          : "Your avatar is seated and ready"}
-                      </p>
-                    </div>
-                  </div>
-                </div>
+              <div className="library-glass-modal">
+                <LibraryPanelHeader
+                  icon={<Clock className="h-4 w-4 shrink-0 text-sky-300" />}
+                  title="Choose study duration"
+                  subtitle={
+                    selectedSeat
+                      ? `Seated at ${selectedSeat.label}`
+                      : "Your avatar is seated and ready"
+                  }
+                  actions={
+                    <LibraryIconButton
+                      label="Back to seat selection"
+                      onClick={() => {
+                        setFlowState("seat_select");
+                        setSelectedSeatId(null);
+                      }}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </LibraryIconButton>
+                  }
+                />
 
                 <div className="p-6">
-                  {/* Preset durations */}
-                  <p className="mb-2.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Quick picks
-                  </p>
+                  <p className="library-text-label mb-2.5">Quick picks</p>
                   <div className="mb-5 grid grid-cols-2 gap-2.5">
                     {DURATION_OPTIONS.map((opt) => {
                       const selected = selectedDuration === opt.value;
@@ -630,8 +631,8 @@ export default function SessionPage() {
                           className={cn(
                             "relative rounded-xl border py-3.5 text-sm font-semibold transition-all",
                             selected
-                              ? "border-sky-400/60 bg-sky-500/15 text-sky-200 shadow-[0_0_20px_rgba(56,189,248,0.12)]"
-                              : "border-white/10 bg-white/[0.04] text-slate-300 hover:border-white/20 hover:bg-white/[0.08] hover:text-white",
+                              ? "border-sky-400/60 bg-sky-500/15 text-sky-100 shadow-[0_0_20px_rgba(56,189,248,0.12)]"
+                              : "border-white/10 bg-white/[0.04] text-slate-200 hover:border-white/20 hover:bg-white/[0.08] hover:text-white",
                           )}
                         >
                           {selected && (
@@ -644,9 +645,7 @@ export default function SessionPage() {
                   </div>
 
                   {/* Custom duration */}
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Custom length
-                  </p>
+                  <p className="library-text-label mb-2">Custom length</p>
                   <div className="mb-6">
                     <input
                       type="number"
@@ -659,15 +658,16 @@ export default function SessionPage() {
                         if (!isNaN(val) && val >= 5) setSelectedDuration(val);
                       }}
                       placeholder="Enter minutes (e.g. 90)"
-                      className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2.5 text-sm text-white placeholder-slate-500 outline-none transition focus:border-sky-500/50 focus:ring-2 focus:ring-sky-500/20"
+                      className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2.5 text-sm text-slate-100 placeholder-slate-400 outline-none transition focus:border-sky-500/50 focus:ring-2 focus:ring-sky-500/20"
                     />
                   </div>
 
                   <div className="flex gap-3">
                     <button
                       onClick={() => { setFlowState("seat_select"); setSelectedSeatId(null); }}
-                      className="flex-1 rounded-xl border border-white/10 bg-white/[0.04] py-3 text-sm font-medium text-slate-400 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-white"
+                      className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] py-3 text-sm font-medium text-slate-200 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-white"
                     >
+                      <ArrowLeft className="h-4 w-4" />
                       Change seat
                     </button>
                     <button
@@ -685,49 +685,37 @@ export default function SessionPage() {
           </motion.div>
         )}
 
-        {/* STUDYING — active session overlays */}
-        {flowState === "studying" && running && (
-          <motion.div
-            key="studying_ui"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-          >
-            {/* Focus camera — floating draggable */}
-            <FocusCameraPanel
-              enabled={webcamEnabled}
-              active={running && !paused && phase === "focus"}
-              phoneDetectionEnabled={phoneDetectionEnabled}
-              focusThreshold={focusThreshold}
-              distractionThreshold={distractionThreshold}
-              onSample={onSample}
-            />
-
-            {/* Timer — bottom right */}
-            <SessionTimerPanel
-              running={running}
-              paused={paused}
-              phase={phase}
-              remainingSec={remainingSec}
-              phaseTotalSec={phaseTotalSec}
-              focusCompleted={focusCompleted}
-              onPause={() => setPaused(true)}
-              onResume={() => setPaused(false)}
-              onEnd={() => void endSession()}
-            />
-
-            <FocusBreakdownPanel
-              sample={lastSample}
-              flags={liveFocusFlags}
-              phase={phase}
-              paused={paused}
-              phoneDetectionEnabled={phoneDetectionEnabled}
-              eyesClosedMs={eyesClosedMs}
-              alarmRunning={alarmRunning}
-            />
-          </motion.div>
-        )}
       </AnimatePresence>
+
+      {/* STUDYING — floating panels above the 3D scene */}
+      {flowState === "studying" && running && (
+        <div
+          ref={panelsLayerRef}
+          className="pointer-events-none absolute inset-0 z-30"
+        >
+          <SessionPanelsLayer
+            webcamEnabled={webcamEnabled}
+            active={running && !paused && phase === "focus"}
+            phoneDetectionEnabled={phoneDetectionEnabled}
+            focusThreshold={focusThreshold}
+            distractionThreshold={distractionThreshold}
+            onSample={onSample}
+            running={running}
+            paused={paused}
+            phase={phase}
+            remainingSec={remainingSec}
+            phaseTotalSec={phaseTotalSec}
+            focusCompleted={focusCompleted}
+            onPause={() => setPaused(true)}
+            onResume={() => setPaused(false)}
+            onEnd={() => void endSession()}
+            sample={lastSample}
+            flags={liveFocusFlags}
+            eyesClosedMs={eyesClosedMs}
+            alarmRunning={alarmRunning}
+          />
+        </div>
+      )}
 
       {/* Session summary celebration */}
       {summary && (
