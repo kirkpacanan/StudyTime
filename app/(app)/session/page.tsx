@@ -1,47 +1,50 @@
 "use client";
 
-import { FocusGauge } from "@/components/FocusGauge";
-import { FocusSignalBars } from "@/components/FocusSignalBars";
 import dynamic from "next/dynamic";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Clock, BookOpen, ChevronRight, Sparkles, Users, Check } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
 import { useSessionLive } from "@/contexts/session-live-context";
 import { useProgression } from "@/contexts/progression-context";
-import { useAuth } from "@/hooks/useAuth";
 import { SessionSummaryCelebration } from "@/components/gamification/SessionSummaryCelebration";
-import {
-  computeSessionStats,
-  persistStudySession,
-} from "@/hooks/useStudySession";
+import { computeSessionStats, persistStudySession } from "@/hooks/useStudySession";
 import type { SessionCelebrationPayload } from "@/lib/gamification/session-celebration";
 import { computeSessionCelebration } from "@/lib/gamification/session-celebration";
 import type { FocusFrameResult } from "@/lib/focus-detection";
 import { getSettings } from "@/lib/storage";
 import type { FocusSample, SessionEvent, UserSettings } from "@/lib/types";
-import { motion } from "framer-motion";
-import { Brain, Sparkles, Timer, Video } from "lucide-react";
 import { cn } from "@/lib/cn";
-import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FocusCameraPanel } from "@/components/library/FocusCameraPanel";
+import { SessionTimerPanel } from "@/components/library/SessionTimerPanel";
+import { LibraryHUD } from "@/components/library/LibraryHUD";
+import { AvatarCreatorModal } from "@/components/library/AvatarCreatorModal";
+import { useLibraryPresence } from "@/hooks/useLibraryPresence";
+import type { LibraryFlowState } from "@/hooks/useLibraryPresence";
+import { getSupabaseBrowser } from "@/lib/supabase/client";
+import { isSupabaseEnabled } from "@/lib/supabase/config";
+import type { PresenceStatus } from "@/lib/social/types";
 
-const FocusCamera = dynamic(
-  () =>
-    import("@/components/FocusCamera").then((m) => ({
-      default: m.FocusCamera,
-    })),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="flex min-h-[200px] items-center justify-center bg-black/40 text-zinc-400 dark:text-zinc-500">
-        <p className="text-sm">Loading camera…</p>
-      </div>
-    ),
-  },
+const LibraryScene = dynamic(
+  () => import("@/components/library/LibraryScene").then((m) => ({ default: m.LibraryScene })),
+  { ssr: false, loading: () => <LibraryLoadingScreen /> },
 );
 
 type Phase = "focus" | "break";
+
+type SessionEndSummary = {
+  saved: boolean;
+  startedAt: string;
+  endedAt: string;
+  focusMs: number;
+  breakMs: number;
+  pomodoroBlocks: number;
+  sampleCount: number;
+  averageFocus: number;
+  focusedRatio: number;
+  distractionEvents: number;
+  celebration: SessionCelebrationPayload | null;
+};
 
 type AlarmController = {
   prime: () => void;
@@ -58,52 +61,26 @@ function createAlarmController(): AlarmController {
   let gain: GainNode | null = null;
   let lfo: OscillatorNode | null = null;
   let lfoGain: GainNode | null = null;
-
   let running = false;
 
   const ensure = async () => {
     if (!ctx) ctx = new AudioContext();
     if (ctx.state !== "running") {
-      try {
-        await ctx.resume();
-      } catch {
-        // ignore
-      }
+      try { await ctx.resume(); } catch { /* ignore */ }
     }
   };
 
   const teardownNodes = () => {
-    try {
-      osc1?.stop();
-    } catch {
-      // ignore
-    }
-    try {
-      osc2?.stop();
-    } catch {
-      // ignore
-    }
-    try {
-      lfo?.stop();
-    } catch {
-      // ignore
-    }
-    osc1?.disconnect();
-    osc2?.disconnect();
-    lfo?.disconnect();
-    lfoGain?.disconnect();
-    gain?.disconnect();
-    osc1 = null;
-    osc2 = null;
-    gain = null;
-    lfo = null;
-    lfoGain = null;
+    try { osc1?.stop(); } catch { /* ignore */ }
+    try { osc2?.stop(); } catch { /* ignore */ }
+    try { lfo?.stop(); } catch { /* ignore */ }
+    osc1?.disconnect(); osc2?.disconnect();
+    lfo?.disconnect(); lfoGain?.disconnect(); gain?.disconnect();
+    osc1 = null; osc2 = null; gain = null; lfo = null; lfoGain = null;
   };
 
   return {
-    prime: () => {
-      void ensure();
-    },
+    prime: () => { void ensure(); },
     start: () => {
       if (running) return;
       running = true;
@@ -111,141 +88,86 @@ function createAlarmController(): AlarmController {
         await ensure();
         if (!ctx) return;
         teardownNodes();
-
         gain = ctx.createGain();
         gain.gain.value = 0.0001;
         gain.connect(ctx.destination);
-
-        // Two oscillators for a more piercing alarm timbre
-        osc1 = ctx.createOscillator();
-        osc1.type = "square";
-        osc1.frequency.value = 880;
-        osc1.connect(gain);
-
-        osc2 = ctx.createOscillator();
-        osc2.type = "sawtooth";
-        osc2.frequency.value = 1320;
-        osc2.connect(gain);
-
-        // LFO to pulse volume (hard to ignore)
-        lfo = ctx.createOscillator();
-        lfo.type = "sine";
-        lfo.frequency.value = 2.6;
-        lfoGain = ctx.createGain();
-        lfoGain.gain.value = 0.45;
-        lfo.connect(lfoGain);
-        lfoGain.connect(gain.gain);
-
+        osc1 = ctx.createOscillator(); osc1.type = "square"; osc1.frequency.value = 880; osc1.connect(gain);
+        osc2 = ctx.createOscillator(); osc2.type = "sawtooth"; osc2.frequency.value = 1320; osc2.connect(gain);
+        lfo = ctx.createOscillator(); lfo.type = "sine"; lfo.frequency.value = 2.6;
+        lfoGain = ctx.createGain(); lfoGain.gain.value = 0.45;
+        lfo.connect(lfoGain); lfoGain.connect(gain.gain);
         const now = ctx.currentTime;
         gain.gain.cancelScheduledValues(now);
         gain.gain.setValueAtTime(0.0, now);
         gain.gain.linearRampToValueAtTime(0.7, now + 0.03);
-
-        osc1.start();
-        osc2.start();
-        lfo.start();
+        osc1.start(); osc2.start(); lfo.start();
       })();
     },
     stop: () => {
       if (!running) return;
       running = false;
-      if (!ctx || !gain) {
-        teardownNodes();
-        return;
-      }
+      if (!ctx || !gain) { teardownNodes(); return; }
       const now = ctx.currentTime;
       try {
         gain.gain.cancelScheduledValues(now);
         gain.gain.setValueAtTime(gain.gain.value, now);
         gain.gain.linearRampToValueAtTime(0.0, now + 0.08);
-      } catch {
-        // ignore
-      }
+      } catch { /* ignore */ }
       window.setTimeout(() => teardownNodes(), 120);
     },
     isRunning: () => running,
     close: () => {
       running = false;
       teardownNodes();
-      if (ctx) {
-        void ctx.close();
-        ctx = null;
-      }
+      if (ctx) { void ctx.close(); ctx = null; }
     },
   };
 }
 
-function getLiveFlags(sample: FocusFrameResult): {
-  flags?: {
-    phoneDetected?: boolean;
-    eyesClosed?: boolean;
-    lookingAway?: boolean;
-    headDown?: boolean;
-    drowsy?: boolean;
-    hasFace?: boolean;
-  };
-  durations?: {
-    eyesClosedMs?: number;
-    lookingAwayMs?: number;
-    headDownMs?: number;
-    phoneDetectedMs?: number;
-    engagedMs?: number;
-  };
-} {
-  const anySample = sample as FocusFrameResult & {
-    flags?: unknown;
-    durations?: unknown;
-  };
-  return {
-    flags:
-      (anySample.flags as
-        | {
-            phoneDetected?: boolean;
-            eyesClosed?: boolean;
-            lookingAway?: boolean;
-            headDown?: boolean;
-            drowsy?: boolean;
-            hasFace?: boolean;
-          }
-        | undefined) ?? undefined,
-    durations:
-      (anySample.durations as
-        | {
-            eyesClosedMs?: number;
-            lookingAwayMs?: number;
-            headDownMs?: number;
-            phoneDetectedMs?: number;
-            engagedMs?: number;
-          }
-        | undefined) ?? undefined,
-  };
-}
-
-function fmt(sec: number) {
+function fmt(sec: number): string {
   const m = Math.floor(sec / 60);
   const s = sec % 60;
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-type SessionEndSummary = {
-  saved: boolean;
-  startedAt: string;
-  endedAt: string;
-  focusMs: number;
-  breakMs: number;
-  pomodoroBlocks: number;
-  sampleCount: number;
-  averageFocus: number;
-  focusedRatio: number;
-  distractionEvents: number;
-  celebration: SessionCelebrationPayload | null;
-};
+function LibraryLoadingScreen() {
+  return (
+    <div className="flex h-screen w-screen flex-col items-center justify-center gap-4 bg-[#1a1206]">
+      <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-900/40 border border-amber-700/30">
+        <BookOpen className="h-8 w-8 text-amber-400 animate-pulse" />
+      </div>
+      <p className="text-sm text-amber-200/60">Loading virtual library…</p>
+    </div>
+  );
+}
+
+const DURATION_OPTIONS = [
+  { label: "25 min", value: 25 },
+  { label: "50 min", value: 50 },
+  { label: "1 hour", value: 60 },
+  { label: "2 hours", value: 120 },
+];
 
 export default function SessionPage() {
   const { user } = useAuth();
   const { setLive, resetLive } = useSessionLive();
   const { refresh: refreshProgression } = useProgression();
+
+  // Settings
   const [settings, setSettings] = useState<UserSettings | null>(null);
+
+  // Flow state
+  const [flowState, setFlowState] = useState<LibraryFlowState>("entering");
+  const [selectedSeatId, setSelectedSeatId] = useState<string | null>(null);
+  const [selectedDuration, setSelectedDuration] = useState<number>(25);
+  const [customDuration, setCustomDuration] = useState<string>("");
+
+  // Avatar
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [showAvatarCreator, setShowAvatarCreator] = useState(false);
+  const [avatarChecked, setAvatarChecked] = useState(false);
+
+  // Timer / session
   const [running, setRunning] = useState(false);
   const [paused, setPaused] = useState(false);
   const [phase, setPhase] = useState<Phase>("focus");
@@ -254,13 +176,7 @@ export default function SessionPage() {
   const samplesRef = useRef<FocusSample[]>([]);
   const eventsRef = useRef<SessionEvent[]>([]);
   const alarmRef = useRef<AlarmController | null>(null);
-  const prevFlagsRef = useRef<{
-    phoneDetected: boolean;
-    eyesClosed10s: boolean;
-    lookingAwayLong: boolean;
-    headDownLong: boolean;
-    alarmRunning: boolean;
-  }>({
+  const prevFlagsRef = useRef({
     phoneDetected: false,
     eyesClosed10s: false,
     lookingAwayLong: false,
@@ -272,47 +188,77 @@ export default function SessionPage() {
   const breakMsRef = useRef(0);
   const sessionMsRef = useRef(0);
   const phaseRef = useRef<Phase>("focus");
-  const [lastSample, setLastSample] = useState<FocusFrameResult>({
-    score: 0,
-    state: "away",
-    rawEar: 0,
-    hasFace: false,
-    eyesScore: 0,
-    faceScore: 0,
-    yaw: 0,
-    pitch: 0,
-  });
-  const [summary, setSummary] = useState<SessionEndSummary | null>(null);
   const focusCompletedRef = useRef(0);
 
+  // Focus sample for live analytics + library presence
+  const [lastSample, setLastSample] = useState<FocusFrameResult>({
+    score: 0, state: "away", rawEar: 0, hasFace: false,
+    eyesScore: 0, faceScore: 0, yaw: 0, pitch: 0,
+  });
+
+  const [summary, setSummary] = useState<SessionEndSummary | null>(null);
+
+  // Load settings
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
-    void getSettings(user.id).then((s) => {
-      if (!cancelled) setSettings(s);
-    });
-    return () => {
-      cancelled = true;
-    };
+    void getSettings(user.id).then((s) => { if (!cancelled) setSettings(s); });
+    return () => { cancelled = true; };
   }, [user]);
 
+  // Load avatar URL from Supabase profile or localStorage
   useEffect(() => {
-    phaseRef.current = phase;
-  }, [phase]);
+    if (!user || avatarChecked) return;
+    const checkAvatar = async () => {
+      let url: string | null = null;
 
+      if (isSupabaseEnabled()) {
+        try {
+          const supabase = getSupabaseBrowser();
+          const { data } = await supabase
+            .from("profiles")
+            .select("avatar_url")
+            .eq("id", user.id)
+            .single();
+          if (data?.avatar_url) url = data.avatar_url as string;
+        } catch { /* ignore */ }
+      }
+
+      if (!url) {
+        try { url = localStorage.getItem("studytime_avatar_url"); } catch { /* ignore */ }
+      }
+
+      setAvatarUrl(url);
+      setAvatarChecked(true);
+
+      if (!url) {
+        // Delay slightly to let the library load first, then prompt.
+        window.setTimeout(() => setShowAvatarCreator(true), 1500);
+      }
+    };
+    void checkAvatar();
+  }, [user, avatarChecked]);
+
+  // Transition to seat_select after entering
   useEffect(() => {
-    focusCompletedRef.current = focusCompleted;
-  }, [focusCompleted]);
+    if (flowState === "entering" && avatarChecked && !showAvatarCreator) {
+      const t = window.setTimeout(() => setFlowState("seat_select"), 800);
+      return () => clearTimeout(t);
+    }
+  }, [flowState, avatarChecked, showAvatarCreator]);
 
+  useEffect(() => { phaseRef.current = phase; }, [phase]);
+  useEffect(() => { focusCompletedRef.current = focusCompleted; }, [focusCompleted]);
+
+  // Keyboard dismiss summary
   useEffect(() => {
     if (!summary) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setSummary(null);
-    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setSummary(null); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [summary]);
 
+  // Derived settings
   const focusSec = (settings?.focusMinutes ?? 25) * 60;
   const shortBreakSec = (settings?.shortBreakMinutes ?? 5) * 60;
   const longBreakSec = (settings?.longBreakMinutes ?? 15) * 60;
@@ -321,32 +267,14 @@ export default function SessionPage() {
   const distractionThreshold = settings?.distractionThreshold ?? 40;
   const webcamEnabled = settings?.webcamEnabled ?? true;
   const phoneDetectionEnabled = settings?.phoneDetectionEnabled ?? true;
-  const notify = settings?.notificationsEnabled ?? false;
-
-  const notifyUser = useCallback(
-    (title: string, body: string) => {
-      if (!notify) return;
-      if (typeof Notification === "undefined") return;
-      if (Notification.permission !== "granted") return;
-      new Notification(title, { body });
-    },
-    [notify],
-  );
 
   const completeCurrentPhaseRef = useRef<() => void>(() => {});
-
   const completeCurrentPhase = useCallback(() => {
     if (phaseRef.current === "focus") {
       setFocusCompleted((c) => {
         const next = c + 1;
         const isLong = next > 0 && next % longEvery === 0;
         setRemainingSec(isLong ? longBreakSec : shortBreakSec);
-        notifyUser(
-          "Break time",
-          isLong
-            ? "Long break — stretch, hydrate, and reset."
-            : "Short break — step away from the screen.",
-        );
         return next;
       });
       phaseRef.current = "break";
@@ -355,15 +283,8 @@ export default function SessionPage() {
       phaseRef.current = "focus";
       setPhase("focus");
       setRemainingSec(focusSec);
-      notifyUser("Focus block", "Time for your next focus stretch.");
     }
-  }, [
-    focusSec,
-    longBreakSec,
-    longEvery,
-    notifyUser,
-    shortBreakSec,
-  ]);
+  }, [focusSec, longBreakSec, longEvery, shortBreakSec]);
 
   completeCurrentPhaseRef.current = completeCurrentPhase;
 
@@ -375,67 +296,36 @@ export default function SessionPage() {
     const breakMs = breakMsRef.current;
     const blocks = focusCompletedRef.current;
     const endedAt = new Date().toISOString();
-
-    const stats = computeSessionStats(
-      samples,
-      focusThreshold,
-      focusMs,
-      breakMs,
-    );
+    const stats = computeSessionStats(samples, focusThreshold, focusMs, breakMs);
     let saved = false;
     let celebration: SessionCelebrationPayload | null = null;
     if (user && started && samples.length > 0) {
       const session = await persistStudySession(
-        user.id,
-        started,
-        samples,
-        [...eventsRef.current],
-        focusMs,
-        breakMs,
-        focusThreshold,
+        user.id, started, samples, [...eventsRef.current], focusMs, breakMs, focusThreshold,
       );
       saved = true;
-      try {
-        celebration = await computeSessionCelebration(user, session);
-      } catch {
-        celebration = null;
-      }
+      try { celebration = await computeSessionCelebration(user, session); } catch { celebration = null; }
     }
-
     setRunning(false);
     setPaused(false);
     resetLive();
     if (typeof document !== "undefined") document.title = "StudyTime";
-
     sessionStartedAtRef.current = null;
-    samplesRef.current = [];
-    eventsRef.current = [];
-    focusMsRef.current = 0;
-    breakMsRef.current = 0;
-    sessionMsRef.current = 0;
+    samplesRef.current = []; eventsRef.current = [];
+    focusMsRef.current = 0; breakMsRef.current = 0; sessionMsRef.current = 0;
     setFocusCompleted(0);
-    phaseRef.current = "focus";
-    setPhase("focus");
-    setRemainingSec(0);
-
+    phaseRef.current = "focus"; setPhase("focus"); setRemainingSec(0);
+    setFlowState("session_end");
     setSummary({
-      saved,
-      startedAt: started ?? endedAt,
-      endedAt,
-      focusMs,
-      breakMs,
-      pomodoroBlocks: blocks,
-      sampleCount: samples.length,
-      averageFocus: stats.averageFocus,
-      focusedRatio: stats.focusedRatio,
-      distractionEvents: stats.distractionEvents,
-      celebration,
+      saved, startedAt: started ?? endedAt, endedAt, focusMs, breakMs,
+      pomodoroBlocks: blocks, sampleCount: samples.length,
+      averageFocus: stats.averageFocus, focusedRatio: stats.focusedRatio,
+      distractionEvents: stats.distractionEvents, celebration,
     });
-
-    // Refresh sidebar profile panel + leaderboard with new XP/level/cosmetics.
     if (saved) void refreshProgression();
   }, [focusThreshold, resetLive, user, refreshProgression]);
 
+  // Timer tick
   useEffect(() => {
     if (!running || paused) return;
     const id = window.setInterval(() => {
@@ -444,29 +334,25 @@ export default function SessionPage() {
         sessionMsRef.current += 1000;
         if (phaseRef.current === "focus") focusMsRef.current += 1000;
         else breakMsRef.current += 1000;
-        if (s === 1) {
-          queueMicrotask(() => completeCurrentPhaseRef.current());
-          return 0;
-        }
+        if (s === 1) { queueMicrotask(() => completeCurrentPhaseRef.current()); return 0; }
         return s - 1;
       });
     }, 1000);
     return () => clearInterval(id);
   }, [running, paused]);
 
+  // Document title
   useEffect(() => {
     if (!running) return;
-    const title =
-      phase === "focus"
-        ? `Focus ${fmt(remainingSec)} · StudyTime`
-        : `Break ${fmt(remainingSec)} · StudyTime`;
-    document.title = title;
+    document.title = phase === "focus"
+      ? `Focus ${fmt(remainingSec)} · StudyTime`
+      : `Break ${fmt(remainingSec)} · StudyTime`;
   }, [running, phase, remainingSec]);
 
+  // Session live context
   useEffect(() => {
     setLive({
-      running,
-      phase,
+      running, phase,
       focusState: phase === "focus" ? lastSample.state : null,
       score: phase === "focus" ? lastSample.score : null,
     });
@@ -474,560 +360,321 @@ export default function SessionPage() {
 
   useEffect(() => () => resetLive(), [resetLive]);
 
-  const onSample = useCallback(
-    (sample: FocusFrameResult) => {
-      setLastSample(sample);
-      if (!running || paused || phaseRef.current !== "focus") return;
-      const flags = (sample as FocusFrameResult & {
-        flags?: {
-          phoneDetected?: boolean;
-          eyesClosed?: boolean;
-          lookingAway?: boolean;
-          headDown?: boolean;
-          drowsy?: boolean;
-          hasFace?: boolean;
-        };
-        durations?: {
-          eyesClosedMs?: number;
-          lookingAwayMs?: number;
-          headDownMs?: number;
-          phoneDetectedMs?: number;
-        };
-      }).flags;
-      const durations = (sample as FocusFrameResult & {
-        durations?: {
-          eyesClosedMs?: number;
-          lookingAwayMs?: number;
-          headDownMs?: number;
-          phoneDetectedMs?: number;
-        };
-      }).durations;
-
-      // --- event logging (session-relative) ---
-      const t = sessionMsRef.current;
-      const prev = prevFlagsRef.current;
-      const phoneNow = flags?.phoneDetected === true;
-      const eyesClosed10sNow = (durations?.eyesClosedMs ?? 0) >= 10_000;
-      const lookingAwayLongNow = (durations?.lookingAwayMs ?? 0) >= 6_000;
-      const headDownLongNow = (durations?.headDownMs ?? 0) >= 4_500;
-
-      if (phoneNow && !prev.phoneDetected) {
-        eventsRef.current.push({ t, type: "phone_detected" });
-      }
-      if (lookingAwayLongNow && !prev.lookingAwayLong) {
-        eventsRef.current.push({ t, type: "look_away_long" });
-      }
-      if (headDownLongNow && !prev.headDownLong) {
-        eventsRef.current.push({ t, type: "head_down_long" });
-      }
-      if (eyesClosed10sNow && !prev.eyesClosed10s) {
-        eventsRef.current.push({ t, type: "eyes_closed_10s" });
-      }
-
-      // --- mandatory alarm: >10s continuous eye closure ---
-      const shouldAlarm = eyesClosed10sNow && sample.state === "sleeping";
-      const alarm = alarmRef.current;
-      if (shouldAlarm && alarm && !alarm.isRunning()) {
-        alarm.start();
-        eventsRef.current.push({ t, type: "alarm_started" });
-      } else if (!shouldAlarm && alarm && alarm.isRunning()) {
-        alarm.stop();
-        eventsRef.current.push({ t, type: "alarm_stopped" });
-      }
-
-      prevFlagsRef.current = {
-        phoneDetected: phoneNow,
-        eyesClosed10s: eyesClosed10sNow,
-        lookingAwayLong: lookingAwayLongNow,
-        headDownLong: headDownLongNow,
-        alarmRunning: alarm?.isRunning() ?? false,
+  // Focus sample handler
+  const onSample = useCallback((sample: FocusFrameResult) => {
+    setLastSample(sample);
+    if (!running || paused || phaseRef.current !== "focus") return;
+    const flags = (sample as FocusFrameResult & {
+      flags?: {
+        phoneDetected?: boolean; eyesClosed?: boolean;
+        lookingAway?: boolean; headDown?: boolean; drowsy?: boolean; hasFace?: boolean;
       };
+    }).flags;
+    const durations = (sample as FocusFrameResult & {
+      durations?: { eyesClosedMs?: number; lookingAwayMs?: number; headDownMs?: number; phoneDetectedMs?: number; };
+    }).durations;
+    const t = sessionMsRef.current;
+    const prev = prevFlagsRef.current;
+    const phoneNow = flags?.phoneDetected === true;
+    const eyesClosed10sNow = (durations?.eyesClosedMs ?? 0) >= 10_000;
+    const lookingAwayLongNow = (durations?.lookingAwayMs ?? 0) >= 6_000;
+    const headDownLongNow = (durations?.headDownMs ?? 0) >= 4_500;
+    if (phoneNow && !prev.phoneDetected) eventsRef.current.push({ t, type: "phone_detected" });
+    if (lookingAwayLongNow && !prev.lookingAwayLong) eventsRef.current.push({ t, type: "look_away_long" });
+    if (headDownLongNow && !prev.headDownLong) eventsRef.current.push({ t, type: "head_down_long" });
+    if (eyesClosed10sNow && !prev.eyesClosed10s) eventsRef.current.push({ t, type: "eyes_closed_10s" });
+    const shouldAlarm = eyesClosed10sNow && sample.state === "sleeping";
+    const alarm = alarmRef.current;
+    if (shouldAlarm && alarm && !alarm.isRunning()) { alarm.start(); eventsRef.current.push({ t, type: "alarm_started" }); }
+    else if (!shouldAlarm && alarm && alarm.isRunning()) { alarm.stop(); eventsRef.current.push({ t, type: "alarm_stopped" }); }
+    prevFlagsRef.current = { phoneDetected: phoneNow, eyesClosed10s: eyesClosed10sNow, lookingAwayLong: lookingAwayLongNow, headDownLong: headDownLongNow, alarmRunning: alarm?.isRunning() ?? false };
+    samplesRef.current.push({
+      t: sessionMsRef.current, score: sample.score, state: sample.state,
+      flags: flags ? { phoneDetected: flags.phoneDetected, lookingAway: flags.lookingAway, headDown: flags.headDown, eyesClosed: flags.eyesClosed, drowsy: flags.drowsy, hasFace: flags.hasFace } : undefined,
+    });
+  }, [running, paused]);
 
-      samplesRef.current.push({
-        t: sessionMsRef.current,
-        score: sample.score,
-        state: sample.state,
-        flags: flags
-          ? {
-              phoneDetected: flags.phoneDetected,
-              lookingAway: flags.lookingAway,
-              headDown: flags.headDown,
-              eyesClosed: flags.eyesClosed,
-              drowsy: flags.drowsy,
-              hasFace: flags.hasFace,
-            }
-          : undefined,
-      });
-    },
-    [running, paused],
-  );
-
-  const startSession = () => {
-    if (!settings || !user) return;
-    if (!alarmRef.current) alarmRef.current = createAlarmController();
-    alarmRef.current.prime();
-    samplesRef.current = [];
-    eventsRef.current = [];
-    focusMsRef.current = 0;
-    breakMsRef.current = 0;
-    sessionMsRef.current = 0;
-    setFocusCompleted(0);
-    prevFlagsRef.current = {
-      phoneDetected: false,
-      eyesClosed10s: false,
-      lookingAwayLong: false,
-      headDownLong: false,
-      alarmRunning: false,
-    };
-    sessionStartedAtRef.current = new Date().toISOString();
-    phaseRef.current = "focus";
-    setPhase("focus");
-    setRemainingSec(settings.focusMinutes * 60);
-    setRunning(true);
-    setPaused(false);
-  };
-
+  // Alarm cleanup
   useEffect(() => {
-    // Stop alarm when pausing / breaking / ending
     if (!running || paused || phase !== "focus") alarmRef.current?.stop();
   }, [running, paused, phase]);
+  useEffect(() => () => { alarmRef.current?.close(); alarmRef.current = null; }, []);
 
-  useEffect(() => {
-    return () => {
-      alarmRef.current?.close();
-      alarmRef.current = null;
-    };
+  const startSession = useCallback(() => {
+    if (!user) return;
+    if (!alarmRef.current) alarmRef.current = createAlarmController();
+    alarmRef.current.prime();
+    samplesRef.current = []; eventsRef.current = [];
+    focusMsRef.current = 0; breakMsRef.current = 0; sessionMsRef.current = 0;
+    setFocusCompleted(0);
+    prevFlagsRef.current = { phoneDetected: false, eyesClosed10s: false, lookingAwayLong: false, headDownLong: false, alarmRunning: false };
+    sessionStartedAtRef.current = new Date().toISOString();
+    phaseRef.current = "focus"; setPhase("focus");
+    setRemainingSec(selectedDuration * 60);
+    setRunning(true);
+    setPaused(false);
+    setFlowState("studying");
+  }, [user, selectedDuration]);
+
+  // Phase progress for timer ring
+  const phaseTotalSec = useMemo(() => {
+    if (phase === "focus") return selectedDuration * 60;
+    const isLong = focusCompleted > 0 && focusCompleted % longEvery === 0;
+    return isLong ? longBreakSec : shortBreakSec;
+  }, [phase, selectedDuration, shortBreakSec, longBreakSec, longEvery, focusCompleted]);
+
+  // Library presence
+  const libraryStatus: PresenceStatus | "completed" =
+    flowState === "session_end" ? "completed"
+    : running ? "studying"
+    : "online";
+
+  const { peers, studyingCount } = useLibraryPresence({
+    userId: user?.id ?? null,
+    displayName: user?.name ?? "Student",
+    avatarUrl,
+    seatId: selectedSeatId,
+    status: libraryStatus,
+    focusPhase: running ? phase : null,
+    focusScore: lastSample.score,
+    sessionDurationMs: sessionMsRef.current,
+  });
+
+  const handleSeatClick = useCallback((seatId: string) => {
+    setSelectedSeatId(seatId);
+    setFlowState("duration_select");
   }, []);
 
-  const phaseTotalSec = useMemo(() => {
-    if (phase === "focus") return focusSec;
-    const isLong =
-      focusCompleted > 0 && focusCompleted % longEvery === 0;
-    return isLong ? longBreakSec : shortBreakSec;
-  }, [
-    phase,
-    focusSec,
-    shortBreakSec,
-    longBreakSec,
-    longEvery,
-    focusCompleted,
-  ]);
+  const handleAvatarSaved = useCallback((url: string) => {
+    setAvatarUrl(url);
+    setShowAvatarCreator(false);
+  }, []);
 
-  const phaseProgress = useMemo(() => {
-    if (!running || !phaseTotalSec) return 0;
-    return Math.min(
-      100,
-      Math.max(0, ((phaseTotalSec - remainingSec) / phaseTotalSec) * 100),
-    );
-  }, [running, phaseTotalSec, remainingSec]);
+  const handleSkipAvatar = useCallback(() => {
+    setShowAvatarCreator(false);
+  }, []);
 
-  if (!user || !settings) {
-    return (
-      <div className="session-page flex min-h-[45vh] flex-col items-center justify-center gap-3">
-        <div className="h-10 w-10 animate-pulse rounded-full bg-primary/25 dark:bg-cyan-500/20" />
-        <p className="text-sm text-muted">Loading your session settings…</p>
-      </div>
-    );
+  if (!user) {
+    return <LibraryLoadingScreen />;
   }
 
-  const timerRingR = 56;
-  const timerCirc = 2 * Math.PI * timerRingR;
-  const timerOffset = timerCirc * (1 - (running ? phaseProgress : 0) / 100);
-
   return (
-    <div className="session-page relative space-y-8 md:space-y-10">
-      <div className="pointer-events-none absolute -left-24 top-0 h-72 w-72 rounded-full bg-primary/16 blur-3xl dark:bg-cyan-500/14" />
-      <div className="pointer-events-none absolute -right-20 bottom-0 h-64 w-64 rounded-full bg-success/14 blur-3xl dark:bg-emerald-500/12" />
-
-      <motion.header
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
-        className="relative overflow-hidden rounded-[1.75rem] border border-slate-200/90 bg-gradient-to-br from-white via-sky-50/80 to-[#eef6ff] p-6 shadow-[0_20px_60px_-28px_rgba(79,134,247,0.2)] ring-1 ring-white/70 backdrop-blur-xl dark:border-white/10 dark:bg-gradient-to-br dark:from-[#080d16] dark:via-[#0f172a] dark:to-[#060a10] dark:shadow-[0_24px_70px_-32px_rgba(0,0,0,0.55)] dark:ring-0 md:p-8"
-      >
-        <div className="pointer-events-none absolute -right-16 -top-20 h-48 w-48 rounded-full bg-primary/15 blur-3xl dark:bg-cyan-500/12" />
-        <div className="relative flex flex-col gap-5 md:flex-row md:items-start md:justify-between md:gap-8">
-          <div className="min-w-0 space-y-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/[0.1] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-primary dark:border-cyan-500/25 dark:bg-cyan-500/10 dark:text-cyan-200">
-                <Sparkles className="h-3.5 w-3.5" aria-hidden />
-                Pomodoro
-              </span>
-              <span className="text-xs font-medium text-slate-500 dark:text-muted">
-                {settings.focusMinutes} min focus · Settings
-              </span>
-            </div>
-            <div className="flex items-start gap-3">
-              <div className="mt-0.5 hidden h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-primary/15 bg-white/80 text-primary shadow-sm dark:border-white/10 dark:bg-slate-800/90 dark:text-cyan-300 sm:flex">
-                <Brain className="h-5 w-5" aria-hidden />
-              </div>
-              <div className="min-w-0">
-                <h1 className="text-[clamp(1.65rem,3.5vw,2.5rem)] font-semibold leading-tight tracking-tight text-text">
-                  Deep focus{" "}
-                  <span className="bg-gradient-to-r from-primary via-sky-500 to-emerald-500 bg-clip-text text-transparent dark:from-sky-300 dark:via-cyan-300 dark:to-emerald-400">
-                    cockpit
-                  </span>
-                </h1>
-                <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600 dark:text-muted md:text-[15px] md:leading-relaxed">
-                  Timer, breaks, and optional live vision — eyes and face posture
-                  blend into one calm focus score you can trust while you work.
-                </p>
-              </div>
-            </div>
-          </div>
-          <div className="shrink-0 md:pt-1">
-            {running ? (
-              <Badge
-                tone={phase === "focus" ? "blue" : "green"}
-                className="px-3 py-1 text-xs"
-              >
-                {phase === "focus" ? "Focus block" : "Break"}
-              </Badge>
-            ) : (
-              <Badge tone="muted" className="px-3 py-1 text-xs">
-                Ready
-              </Badge>
-            )}
-          </div>
-        </div>
-      </motion.header>
-
-      <div className="relative grid gap-6 md:gap-8 xl:grid-cols-12">
-        <motion.section
-          initial={{ opacity: 0, y: 14 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{
-            duration: 0.45,
-            delay: 0.06,
-            ease: [0.16, 1, 0.3, 1],
-          }}
-          className="space-y-0 xl:col-span-7"
-        >
-          <Card
-            className={cn(
-              "overflow-hidden p-0",
-              getLiveFlags(lastSample).flags?.phoneDetected
-                ? "ring-2 ring-red-500/35"
-                : null,
-            )}
-          >
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/80 px-5 py-4 dark:border-white/10 md:px-6">
-              <h2 className="flex items-center gap-3 text-base font-semibold tracking-tight text-text">
-                <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200/90 bg-slate-50 text-primary dark:border-white/10 dark:bg-slate-800 dark:text-cyan-300">
-                  <Video className="h-5 w-5" aria-hidden />
-                </span>
-                Live vision
-              </h2>
-              {!webcamEnabled ? (
-                <Link
-                  href="/settings"
-                  className="text-xs font-medium text-primary underline-offset-4 hover:underline dark:text-cyan-300"
-                >
-                  Enable camera in Settings
-                </Link>
-              ) : null}
-            </div>
-            <div className="p-5 md:p-6">
-              <div className="overflow-hidden rounded-xl border border-slate-200/90 shadow-sm dark:border-white/10 dark:shadow-none">
-                <FocusCamera
-                  enabled={webcamEnabled}
-                  active={running && !paused && phase === "focus"}
-                  phoneDetectionEnabled={phoneDetectionEnabled}
-                  focusThreshold={focusThreshold}
-                  distractionThreshold={distractionThreshold}
-                  onSample={onSample}
-                />
-              </div>
-            </div>
-          </Card>
-        </motion.section>
-
-        <motion.section
-          initial={{ opacity: 0, y: 14 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{
-            duration: 0.45,
-            delay: 0.1,
-            ease: [0.16, 1, 0.3, 1],
-          }}
-          className="flex flex-col gap-5 xl:col-span-5"
-        >
-          <Card className="relative overflow-hidden p-0">
-            <div className="pointer-events-none absolute -right-8 top-0 h-36 w-36 rounded-full bg-primary/12 blur-3xl dark:bg-cyan-500/12" />
-            <div className="pointer-events-none absolute bottom-0 left-0 h-28 w-28 rounded-full bg-success/10 blur-3xl dark:bg-emerald-500/10" />
-            <div className="relative border-b border-slate-200/80 bg-gradient-to-r from-white/45 to-transparent px-6 py-4 backdrop-blur-md dark:border-white/10 dark:from-slate-900/40 dark:to-transparent">
-              <div className="flex items-center gap-2 text-sm font-semibold text-text">
-                <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-primary/15 bg-white/90 text-primary dark:border-white/10 dark:bg-slate-800 dark:text-cyan-300">
-                  <Timer className="h-4 w-4" aria-hidden />
-                </span>
-                Timer &amp; controls
-              </div>
-            </div>
-            <div className="relative flex flex-col gap-5 p-6 md:flex-row md:items-start md:justify-between md:gap-6 md:p-7">
-              <div className="relative mx-auto flex h-40 w-40 shrink-0 items-center justify-center md:mx-0">
-                <svg
-                  className="-rotate-90 text-primary-soft dark:text-slate-800"
-                  width="160"
-                  height="160"
-                  aria-hidden
-                >
-                  <circle
-                    cx="80"
-                    cy="80"
-                    r={timerRingR}
-                    stroke="currentColor"
-                    strokeWidth="8"
-                    fill="none"
-                  />
-                  <circle
-                    cx="80"
-                    cy="80"
-                    r={timerRingR}
-                    stroke="currentColor"
-                    strokeWidth="8"
-                    fill="none"
-                    strokeDasharray={timerCirc}
-                    strokeDashoffset={timerOffset}
-                    strokeLinecap="round"
-                    className={
-                      phase === "focus"
-                        ? "text-primary drop-shadow-[0_0_12px_rgba(79,134,247,0.35)] transition-[stroke-dashoffset] duration-1000 ease-out dark:text-cyan-400 dark:drop-shadow-[0_0_14px_rgba(34,211,238,0.25)]"
-                        : "text-success drop-shadow-[0_0_12px_rgba(72,187,120,0.3)] transition-[stroke-dashoffset] duration-1000 ease-out dark:text-emerald-400"
-                    }
-                  />
-                </svg>
-                <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-muted">
-                    {running ? (phase === "focus" ? "Focus" : "Break") : "Timer"}
-                  </p>
-                  <p className="text-3xl font-bold tabular-nums tracking-tight text-text sm:text-4xl">
-                    {running ? fmt(remainingSec) : "—"}
-                  </p>
-                </div>
-              </div>
-              <div className="min-w-0 flex-1 space-y-4 text-center md:text-left">
-                <Progress
-                  value={running ? phaseProgress : 0}
-                  className="h-2 rounded-full"
-                />
-                <p className="text-xs leading-relaxed text-slate-600 dark:text-muted">
-                  Blocks done{" "}
-                  <span className="font-semibold tabular-nums text-text">
-                    {focusCompleted}
-                  </span>{" "}
-                  · long break every{" "}
-                  <span className="font-semibold text-text">{longEvery}</span>
-                </p>
-                <div className="flex flex-wrap justify-center gap-2 md:justify-start">
-                  {!running ? (
-                    <Button
-                      type="button"
-                      className="px-8 shadow-[0_10px_32px_-10px_rgba(79,134,247,0.45)] dark:shadow-[0_10px_32px_-10px_rgba(34,211,238,0.22)]"
-                      onClick={startSession}
-                    >
-                      Start session
-                    </Button>
-                  ) : (
-                    <>
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        onClick={() => setPaused((p) => !p)}
-                      >
-                        {paused ? "Resume" : "Pause"}
-                      </Button>
-                      <Button type="button" variant="danger" onClick={endSession}>
-                        End &amp; save
-                      </Button>
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
-          </Card>
-
-          <Card className="overflow-hidden p-0">
-            <div className="border-b border-slate-200/80 bg-gradient-to-r from-primary/[0.06] to-transparent px-6 py-4 dark:border-white/10 dark:from-cyan-500/[0.08] dark:to-transparent">
-              <h3 className="text-base font-semibold tracking-tight text-text">
-                Live focus signal
-              </h3>
-              <p className="mt-1 text-xs text-slate-600 dark:text-muted">
-                Composite score from eyes + face
-              </p>
-            </div>
-            <div className="space-y-5 p-6 md:p-7">
-              <div className="flex flex-col items-center gap-4">
-                <FocusGauge value={lastSample.score} state={lastSample.state} />
-                <Badge
-                  tone={
-                    lastSample.state === "focused"
-                      ? "blue"
-                      : lastSample.state === "drifting"
-                        ? "yellow"
-                        : lastSample.state === "distracted" ||
-                            lastSample.state === "away"
-                          ? "red"
-                          : "muted"
-                  }
-                >
-                  {(() => {
-                    const { flags, durations } = getLiveFlags(lastSample);
-                    const eyesClosedMs = durations?.eyesClosedMs ?? 0;
-                    const eyesClosed = flags?.eyesClosed === true;
-                    const toSleepSec =
-                      eyesClosed && eyesClosedMs > 0
-                        ? Math.max(0, Math.ceil((10_000 - eyesClosedMs) / 1000))
-                        : null;
-
-                    if (lastSample.state === "focused") return "Focused";
-                    if (lastSample.state === "drifting") return "Drifting";
-                    if (lastSample.state === "sleeping")
-                      return "Sleeping (Alarm)";
-                    if (eyesClosed && toSleepSec != null)
-                      return `Eyes closed (${toSleepSec}s)`;
-                    if (lastSample.state === "distracted") return "Not Focused";
-                    if (lastSample.state === "away") return "Not Focused";
-                    return lastSample.state;
-                  })()}
-                </Badge>
-                <FocusSignalBars
-                  eyesScore={lastSample.eyesScore}
-                  faceScore={lastSample.faceScore}
-                />
-
-                {(() => {
-                  const { flags, durations } = getLiveFlags(lastSample);
-                  const phoneDetected = flags?.phoneDetected === true;
-                  const eyesClosedMs = durations?.eyesClosedMs ?? 0;
-                  const eyesClosed = flags?.eyesClosed === true;
-                  const closedPct = Math.min(
-                    100,
-                    Math.max(0, (eyesClosedMs / 10_000) * 100),
-                  );
-                  const toSleepSec =
-                    eyesClosed && eyesClosedMs > 0
-                      ? Math.max(0, Math.ceil((10_000 - eyesClosedMs) / 1000))
-                      : null;
-                  const sleepLabel =
-                    lastSample.state === "sleeping"
-                      ? "Sleeping"
-                      : eyesClosed && toSleepSec != null
-                        ? `Eyes closed · ${toSleepSec}s`
-                        : "Eyes open";
-
-                  return (
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                      <div
-                        className={cn(
-                          "rounded-xl border p-3 backdrop-blur-xl backdrop-saturate-200",
-                          phoneDetected
-                            ? "border-red-500/40 bg-red-500/[0.10] dark:border-red-500/30 dark:bg-red-950/40"
-                            : "border-white/55 bg-white/[0.28] dark:border-white/[0.16] dark:bg-slate-900/[0.36]",
-                        )}
-                      >
-                        <div className="mb-2 flex items-center justify-between gap-2">
-                          <span
-                            className={cn(
-                              "text-xs font-semibold uppercase tracking-wide",
-                              phoneDetected
-                                ? "text-red-600 dark:text-red-300"
-                                : "text-muted",
-                            )}
-                          >
-                            Phone
-                          </span>
-                          <span className="tabular-nums text-xs font-semibold text-text">
-                            {phoneDetected ? "Detected" : "—"}
-                          </span>
-                        </div>
-                        <div className="h-2 overflow-hidden rounded-full border border-white/25 bg-white/50 backdrop-blur-sm dark:border-white/[0.06] dark:bg-slate-800/60">
-                          <div
-                            className={cn(
-                              "h-full rounded-full transition-[width] duration-200",
-                              phoneDetected
-                                ? "bg-gradient-to-r from-red-500 to-rose-500"
-                                : "bg-gradient-to-r from-slate-300 to-slate-400 dark:from-slate-600 dark:to-slate-700",
-                            )}
-                            style={{ width: `${phoneDetected ? 100 : 0}%` }}
-                          />
-                        </div>
-                        <p className="mt-1.5 text-[10px] leading-snug text-muted">
-                          MediaPipe phone detector — works portrait or sideways; marks Not Focused when a phone appears in frame.
-                        </p>
-                      </div>
-
-                      <div
-                        className={cn(
-                          "rounded-xl border p-3 backdrop-blur-xl backdrop-saturate-200",
-                          lastSample.state === "sleeping"
-                            ? "border-red-500/40 bg-red-500/[0.10] dark:border-red-500/30 dark:bg-red-950/40"
-                            : eyesClosed
-                              ? "border-amber-500/40 bg-amber-500/[0.10] dark:border-amber-500/25 dark:bg-amber-950/35"
-                              : "border-white/55 bg-white/[0.28] dark:border-white/[0.16] dark:bg-slate-900/[0.36]",
-                        )}
-                      >
-                        <div className="mb-2 flex items-center justify-between gap-2">
-                          <span
-                            className={cn(
-                              "text-xs font-semibold uppercase tracking-wide",
-                              lastSample.state === "sleeping"
-                                ? "text-red-600 dark:text-red-300"
-                                : eyesClosed
-                                  ? "text-amber-700 dark:text-amber-300"
-                                  : "text-muted",
-                            )}
-                          >
-                            Sleep
-                          </span>
-                          <span className="tabular-nums text-xs font-semibold text-text">
-                            {sleepLabel}
-                          </span>
-                        </div>
-                        <div className="h-2 overflow-hidden rounded-full border border-white/25 bg-white/50 backdrop-blur-sm dark:border-white/[0.06] dark:bg-slate-800/60">
-                          <div
-                            className={cn(
-                              "h-full rounded-full transition-[width] duration-700 ease-out motion-reduce:transition-none",
-                              lastSample.state === "sleeping"
-                                ? "bg-gradient-to-r from-red-500 to-rose-500"
-                                : eyesClosed
-                                  ? "bg-gradient-to-r from-amber-500 to-yellow-500"
-                                  : "bg-gradient-to-r from-slate-300 to-slate-400 dark:from-slate-600 dark:to-slate-700",
-                            )}
-                            style={{ width: `${eyesClosed ? closedPct : 0}%` }}
-                          />
-                        </div>
-                        <p className="mt-1.5 text-[10px] leading-snug text-muted">
-                          Short blinks are ignored; progress starts after sustained
-                          closure. Sleeping triggers at{" "}
-                          <span className="font-medium text-text">10s</span>{" "}
-                          continuous closure.
-                        </p>
-                      </div>
-                    </div>
-                  );
-                })()}
-              </div>
-              <p className="rounded-xl border border-slate-200/70 bg-slate-50/50 px-4 py-3 text-center text-[11px] leading-relaxed text-slate-600 dark:border-white/10 dark:bg-slate-900/40 dark:text-muted">
-                Score blends{" "}
-                <span className="font-medium text-text">eyes</span> (~50%) and{" "}
-                <span className="font-medium text-text">face</span> (~42%) with
-                light expression dampening. Focused ≥{focusThreshold}% · drifting
-                between · distracted &lt;{distractionThreshold}%.
-              </p>
-            </div>
-          </Card>
-        </motion.section>
+    <div className="fixed inset-0 z-50 overflow-hidden bg-[#1a1206]">
+      {/* 3D Library Scene — full screen */}
+      <div className="absolute inset-0">
+        <LibraryScene
+          flowState={flowState}
+          myAvatarUrl={avatarUrl}
+          mySeatId={selectedSeatId}
+          myStatus={
+            flowState === "session_end" ? "completed"
+            : running && phase === "break" ? "break"
+            : running ? "studying"
+            : "idle"
+          }
+          myFocusScore={lastSample.score}
+          peers={peers}
+          onSeatClick={handleSeatClick}
+          userName={user.name ?? "You"}
+        />
       </div>
 
-      {summary ? (
+      {/* === HUD (top-left) === */}
+      <LibraryHUD studyingCount={studyingCount + 1} />
+
+      {/* === Avatar Creator Modal === */}
+      {showAvatarCreator && (
+        <AvatarCreatorModal onAvatarSaved={handleAvatarSaved} onSkip={handleSkipAvatar} />
+      )}
+
+      {/* === Flow overlays === */}
+      <AnimatePresence>
+        {/* ENTERING — brief welcome */}
+        {flowState === "entering" && (
+          <motion.div
+            key="entering"
+            initial={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.6 }}
+            className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3"
+          >
+            <div className="rounded-2xl border border-amber-500/20 bg-black/60 px-8 py-6 text-center backdrop-blur-xl">
+              <BookOpen className="mx-auto mb-3 h-10 w-10 text-amber-400" />
+              <h1 className="text-2xl font-bold text-white">Virtual Library</h1>
+              <p className="mt-1 text-sm text-amber-200/60">Click an empty seat to begin</p>
+            </div>
+          </motion.div>
+        )}
+
+        {/* SEAT SELECT — instruction banner */}
+        {flowState === "seat_select" && (
+          <motion.div
+            key="seat_select"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="absolute bottom-6 left-1/2 -translate-x-1/2"
+          >
+            <div className="flex items-center gap-3 rounded-2xl border border-emerald-500/30 bg-slate-900/90 px-6 py-3 shadow-2xl backdrop-blur-xl">
+              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-400">
+                <BookOpen className="h-4 w-4" />
+              </span>
+              <span className="text-sm font-medium text-white">
+                Click a glowing seat to sit down
+              </span>
+            </div>
+          </motion.div>
+        )}
+
+        {/* DURATION SELECT — picker overlay */}
+        {flowState === "duration_select" && (
+          <motion.div
+            key="duration_select"
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="absolute inset-0 flex items-center justify-center"
+          >
+            <div className="w-full max-w-sm rounded-2xl border border-white/15 bg-slate-900/95 p-6 shadow-2xl backdrop-blur-xl">
+              <div className="mb-5 flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-500/20">
+                  <Clock className="h-5 w-5 text-sky-400" />
+                </div>
+                <div>
+                  <h2 className="font-bold text-white">Choose study duration</h2>
+                  <p className="text-xs text-slate-400">Your avatar is seated and ready</p>
+                </div>
+              </div>
+
+              {/* Preset durations */}
+              <div className="mb-4 grid grid-cols-2 gap-2">
+                {DURATION_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => setSelectedDuration(opt.value)}
+                    className={cn(
+                      "rounded-xl border py-3 text-sm font-semibold transition-all",
+                      selectedDuration === opt.value
+                        ? "border-sky-500/50 bg-sky-500/20 text-sky-300"
+                        : "border-white/10 bg-white/5 text-slate-300 hover:bg-white/10 hover:text-white",
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Custom duration */}
+              <div className="mb-5">
+                <label className="mb-1.5 block text-xs font-medium text-slate-400">
+                  Custom (minutes)
+                </label>
+                <input
+                  type="number"
+                  min={5}
+                  max={480}
+                  value={customDuration}
+                  onChange={(e) => {
+                    setCustomDuration(e.target.value);
+                    const val = parseInt(e.target.value, 10);
+                    if (!isNaN(val) && val >= 5) setSelectedDuration(val);
+                  }}
+                  placeholder="e.g. 90"
+                  className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-slate-500 outline-none focus:border-sky-500/50 focus:ring-1 focus:ring-sky-500/30"
+                />
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { setFlowState("seat_select"); setSelectedSeatId(null); }}
+                  className="flex-1 rounded-xl border border-white/10 bg-white/5 py-2.5 text-sm font-medium text-slate-400 hover:bg-white/10 hover:text-white transition-colors"
+                >
+                  Change seat
+                </button>
+                <button
+                  onClick={startSession}
+                  className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-sky-600 py-2.5 text-sm font-semibold text-white shadow hover:bg-sky-500 transition-colors"
+                >
+                  <Sparkles className="h-4 w-4" />
+                  Start {selectedDuration}m session
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        {/* STUDYING — active session overlays */}
+        {flowState === "studying" && running && (
+          <motion.div
+            key="studying_ui"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            {/* Focus camera — floating draggable */}
+            <FocusCameraPanel
+              enabled={webcamEnabled}
+              active={running && !paused && phase === "focus"}
+              phoneDetectionEnabled={phoneDetectionEnabled}
+              focusThreshold={focusThreshold}
+              distractionThreshold={distractionThreshold}
+              onSample={onSample}
+            />
+
+            {/* Timer — bottom right */}
+            <SessionTimerPanel
+              running={running}
+              paused={paused}
+              phase={phase}
+              remainingSec={remainingSec}
+              phaseTotalSec={phaseTotalSec}
+              focusCompleted={focusCompleted}
+              onPause={() => setPaused(true)}
+              onResume={() => setPaused(false)}
+              onEnd={() => void endSession()}
+            />
+
+            {/* Focus score badge — top center */}
+            <div className="absolute left-1/2 top-4 -translate-x-1/2 z-[60]">
+              <div className={cn(
+                "flex items-center gap-2 rounded-full border px-4 py-1.5 text-sm font-semibold backdrop-blur-xl shadow",
+                lastSample.state === "focused"
+                  ? "border-sky-500/40 bg-sky-900/80 text-sky-200"
+                  : lastSample.state === "drifting"
+                  ? "border-amber-500/40 bg-amber-900/80 text-amber-200"
+                  : "border-red-500/40 bg-red-900/80 text-red-200",
+              )}>
+                <span className={cn(
+                  "h-2 w-2 animate-pulse rounded-full",
+                  lastSample.state === "focused" ? "bg-sky-400"
+                  : lastSample.state === "drifting" ? "bg-amber-400"
+                  : "bg-red-400",
+                )} />
+                Focus {Math.round(lastSample.score)}%
+                {phase === "break" && (
+                  <span className="ml-1 rounded-full bg-emerald-700/60 px-2 text-emerald-300 text-xs">Break</span>
+                )}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Session summary celebration */}
+      {summary && (
         <SessionSummaryCelebration
           summary={summary}
           celebration={summary.celebration}
           userName={user?.name ?? "Student"}
           userAvatarSeed={user?.id ?? "guest"}
-          onClose={() => setSummary(null)}
+          onClose={() => {
+            setSummary(null);
+            setFlowState("seat_select");
+            setSelectedSeatId(null);
+          }}
         />
-      ) : null}
+      )}
     </div>
   );
 }

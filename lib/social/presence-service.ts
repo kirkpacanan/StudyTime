@@ -9,7 +9,13 @@ import type { PresenceStatus } from "./types";
 
 export async function heartbeat(
   status: PresenceStatus,
-  opts: { sessionId?: string | null; focusPhase?: string | null } = {},
+  opts: {
+    sessionId?: string | null;
+    focusPhase?: string | null;
+    seatId?: string | null;
+    avatarUrl?: string | null;
+    roomId?: string | null;
+  } = {},
 ): Promise<void> {
   if (!isSupabaseEnabled()) return;
   try {
@@ -18,6 +24,9 @@ export async function heartbeat(
       p_status: status,
       p_session_id: opts.sessionId ?? null,
       p_focus_phase: opts.focusPhase ?? null,
+      p_seat_id: opts.seatId ?? null,
+      p_avatar_url: opts.avatarUrl ?? null,
+      p_room_id: opts.roomId ?? "main",
     });
   } catch {
     /* presence is best-effort */
