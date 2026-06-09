@@ -66,15 +66,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   if (!ready) return <Splash />;
   if (!user) return null;
 
-  if (isSession) {
-    return (
-      <>
-        <SessionNavFlash />
-        <PageTransition>{children}</PageTransition>
-      </>
-    );
-  }
-
   return (
     <>
       <SessionNavFlash />
@@ -83,7 +74,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <Sidebar />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col md:ml-64">
           <Topbar />
-          <main className="mx-auto min-h-0 w-full max-w-6xl flex-1 px-4 py-6 md:px-8 md:py-8">
+          <main
+            className={
+              isSession
+                ? "mx-auto flex min-h-0 w-full max-w-none flex-1 flex-col p-2 md:p-3"
+                : "mx-auto min-h-0 w-full max-w-6xl flex-1 px-4 py-6 md:px-8 md:py-8"
+            }
+          >
             <PageTransition>{children}</PageTransition>
           </main>
         </div>

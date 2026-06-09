@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
 import { isSupabaseEnabled } from "@/lib/supabase/config";
 import type { PresenceStatus } from "@/lib/social/types";
@@ -181,9 +181,15 @@ export function useLibraryPresence(opts: {
     broadcastSelf,
   ]);
 
-  const studyingCount = [...peers.values()].filter(
-    (p) => p.status === "studying",
-  ).length;
+  /** Seated players in an active study session (includes self when applicable). */
+  const studyingCount = useMemo(() => {
+    let count = 0;
+    for (const p of peers.values()) {
+      if (p.status === "studying" && p.seatId) count++;
+    }
+    if (opts.userId && opts.seatId && opts.status === "studying") count++;
+    return count;
+  }, [peers, opts.userId, opts.seatId, opts.status]);
 
   return { peers, studyingCount, broadcastSelf };
 }

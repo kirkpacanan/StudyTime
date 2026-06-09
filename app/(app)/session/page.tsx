@@ -1,7 +1,6 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { Clock, BookOpen, ChevronRight, Sparkles, Check, ArrowLeft, X } from "lucide-react";
@@ -39,10 +38,11 @@ import type { LibraryFlowState } from "@/hooks/useLibraryPresence";
 import { loadAvatarUrl } from "@/lib/library/persist-avatar";
 import { getSeatById } from "@/lib/library/seats";
 import type { PresenceStatus } from "@/lib/social/types";
+import { useSessionImmersive } from "@/hooks/useSessionImmersive";
 
 const LibraryScene = dynamic(
   () => import("@/components/library/LibraryScene").then((m) => ({ default: m.LibraryScene })),
-  { ssr: false, loading: () => <LibraryLoadingScreen /> },
+  { ssr: false, loading: () => <LibraryLoadingScreen embedded /> },
 );
 
 type Phase = "focus" | "break";
@@ -145,11 +145,14 @@ function fmt(sec: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-function LibraryLoadingScreen() {
+function LibraryLoadingScreen({ embedded = false }: { embedded?: boolean }) {
   const reduce = useReducedMotion();
   return (
     <motion.div
-      className="flex h-screen w-screen flex-col items-center justify-center gap-4 bg-[#1a1206]"
+      className={cn(
+        "flex w-full flex-col items-center justify-center gap-4 bg-[#1a1206]",
+        embedded ? "h-full min-h-[min(720px,calc(100dvh-5.5rem))] rounded-2xl" : "h-screen",
+      )}
       initial={reduce ? false : { opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.35, ease: SESSION_EASE }}
@@ -183,7 +186,8 @@ const DURATION_OPTIONS = [
 
 export default function SessionPage() {
   const reduce = useReducedMotion();
-  const router = useRouter();
+  const { isImmersive, toggleImmersive, exitImmersive, layoutTransition } =
+    useSessionImmersive();
   const { user } = useAuth();
   const { setLive, resetLive } = useSessionLive();
   const { refresh: refreshProgression } = useProgression();
@@ -243,6 +247,7 @@ export default function SessionPage() {
   const [alarmRunning, setAlarmRunning] = useState(false);
 
   const [summary, setSummary] = useState<SessionEndSummary | null>(null);
+  const [summaryOpen, setSummaryOpen] = useState(false);
   const panelsLayerRef = useRef<HTMLDivElement>(null);
 
   // Load settings
@@ -279,13 +284,24 @@ export default function SessionPage() {
   useEffect(() => { phaseRef.current = phase; }, [phase]);
   useEffect(() => { focusCompletedRef.current = focusCompleted; }, [focusCompleted]);
 
-  // Keyboard dismiss summary
+  const closeSummary = useCallback(() => {
+    setSummaryOpen(false);
+    window.setTimeout(() => {
+      setSummary(null);
+      setFlowState("seat_select");
+      setSelectedSeatId(null);
+    }, 280);
+  }, []);
+
+  // Keyboard: Escape exits immersive mode (summary modal handles its own Escape)
   useEffect(() => {
-    if (!summary) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setSummary(null); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || summaryOpen) return;
+      if (isImmersive) exitImmersive();
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [summary]);
+  }, [summaryOpen, isImmersive, exitImmersive]);
 
   // Derived settings
   const focusSec = (settings?.focusMinutes ?? 25) * 60;
@@ -353,6 +369,7 @@ export default function SessionPage() {
       averageFocus: stats.averageFocus, focusedRatio: stats.focusedRatio,
       distractionEvents: stats.distractionEvents, celebration,
     });
+    setSummaryOpen(true);
     if (saved) void refreshProgression();
   }, [focusThreshold, resetLive, user, refreshProgression]);
 
@@ -512,32 +529,36 @@ export default function SessionPage() {
     setShowAvatarCreator(false);
   }, []);
 
-  const leaveToDashboard = useCallback(() => {
-    if (running) {
-      const confirmed = window.confirm(
-        "Leave this study session and return to the dashboard? Your progress may not be saved.",
-      );
-      if (!confirmed) return;
-    }
-    alarmRef.current?.stop();
-    resetLive();
-    setRunning(false);
-    setPaused(false);
-    if (typeof document !== "undefined") document.title = "StudyTime";
-    router.push("/dashboard");
-  }, [running, resetLive, router]);
-
   const selectedSeat = useMemo(
     () => (selectedSeatId ? getSeatById(selectedSeatId) : null),
     [selectedSeatId],
   );
 
+  const panelLayout = isImmersive ? "immersive" : "embedded";
+  const stepBannerTop = isImmersive
+    ? "top-[5.25rem]"
+    : "top-[4.25rem] sm:top-[4.75rem]";
+
   if (!user) {
-    return <LibraryLoadingScreen />;
+    return <LibraryLoadingScreen embedded />;
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#1a1206]">
+    <motion.div
+      layout
+      className={cn(
+        "overflow-hidden bg-[#1a1206]",
+        isImmersive
+          ? "fixed inset-0 z-[200]"
+          : "relative min-h-[min(720px,calc(100dvh-5.5rem))] w-full flex-1 rounded-2xl ring-1 ring-white/[0.08] shadow-[0_24px_80px_rgba(0,0,0,0.35)]",
+      )}
+      initial={false}
+      animate={{
+        borderRadius: isImmersive ? 0 : 16,
+        opacity: 1,
+      }}
+      transition={layoutTransition}
+    >
       <SessionEnterOverlay />
 
       {/* 3D Library Scene — full screen */}
@@ -574,8 +595,9 @@ export default function SessionPage() {
           transition={reduce ? { duration: 0.01 } : sessionTopBarEnter.transition}
         >
           <SessionTopBar
-            studyingCount={studyingCount + 1}
-            onExit={leaveToDashboard}
+            studyingCount={studyingCount}
+            isImmersive={isImmersive}
+            onToggleImmersive={toggleImmersive}
           />
         </motion.div>
       )}
@@ -635,7 +657,10 @@ export default function SessionPage() {
             initial={{ opacity: 0, y: -8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
-            className="pointer-events-none absolute inset-x-0 top-[5.25rem] z-[60] flex justify-center px-4"
+            className={cn(
+              "pointer-events-none absolute inset-x-0 z-[60] flex justify-center px-4",
+              stepBannerTop,
+            )}
           >
             <SessionStepIndicator
               active={flowState === "seat_select" ? "seat" : "duration"}
@@ -794,24 +819,22 @@ export default function SessionPage() {
             flags={liveFocusFlags}
             eyesClosedMs={eyesClosedMs}
             alarmRunning={alarmRunning}
+            layout={panelLayout}
           />
         </motion.div>
       )}
 
       {/* Session summary celebration */}
-      {summary && (
+      {summary ? (
         <SessionSummaryCelebration
+          open={summaryOpen}
           summary={summary}
           celebration={summary.celebration}
           userName={user?.name ?? "Student"}
           userAvatarSeed={user?.id ?? "guest"}
-          onClose={() => {
-            setSummary(null);
-            setFlowState("seat_select");
-            setSelectedSeatId(null);
-          }}
+          onClose={closeSummary}
         />
-      )}
-    </div>
+      ) : null}
+    </motion.div>
   );
 }

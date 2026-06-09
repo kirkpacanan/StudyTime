@@ -37,12 +37,14 @@ type SessionPanelsLayerProps = {
   flags: LiveFocusFlags;
   eyesClosedMs: number;
   alarmRunning: boolean;
+  /** `embedded` — session card inside app shell; `immersive` — fullscreen overlay. */
+  layout?: "embedded" | "immersive";
 };
 
-/** Clearance below the room info pill (left). */
-const LIVE_VISION_TOP = "top-[5.5rem]";
-/** Clearance below the exit button (right). */
-const FOCUS_TIMER_TOP = "top-[6rem]";
+const PANEL_TOP = {
+  embedded: { vision: "top-14 sm:top-16", timer: "top-[4.25rem] sm:top-[4.75rem]" },
+  immersive: { vision: "top-[5.5rem]", timer: "top-[6rem]" },
+} as const;
 /** Shared right-column width — matches Focus panel. */
 const RIGHT_COL_W = 196;
 
@@ -56,10 +58,13 @@ const RIGHT_COL_W = 196;
  * change, not on every unrelated SessionPage state update.
  */
 export const SessionPanelsLayer = memo(function SessionPanelsLayer(props: SessionPanelsLayerProps) {
+  const layout = props.layout ?? "immersive";
+  const tops = PANEL_TOP[layout];
+
   return (
     <>
       {/* Live Vision — top-left */}
-      <div className={`pointer-events-none absolute left-4 z-10 ${LIVE_VISION_TOP}`}>
+      <div className={`pointer-events-none absolute left-3 z-10 sm:left-4 ${tops.vision}`}>
         <FocusCameraPanel
           enabled={props.webcamEnabled}
           active={props.active}
@@ -74,7 +79,7 @@ export const SessionPanelsLayer = memo(function SessionPanelsLayer(props: Sessio
 
       {/* Focus + Timer — top-right column */}
       <div
-        className={`pointer-events-none absolute right-4 z-20 flex flex-col gap-2 ${FOCUS_TIMER_TOP}`}
+        className={`pointer-events-none absolute right-3 z-20 flex flex-col gap-2 sm:right-4 ${tops.timer}`}
         style={{ width: RIGHT_COL_W }}
       >
         <FocusBreakdownPanel

@@ -12,7 +12,7 @@ export function SessionEnterOverlay() {
 
   return (
     <motion.div
-      className="pointer-events-none fixed inset-0 z-[120] bg-[radial-gradient(ellipse_90%_70%_at_50%_38%,rgba(196,148,64,0.18)_0%,transparent_62%)]"
+      className="pointer-events-none absolute inset-0 z-[120] bg-[radial-gradient(ellipse_90%_70%_at_50%_38%,rgba(196,148,64,0.18)_0%,transparent_62%)]"
       initial={{ opacity: 0.85 }}
       animate={{ opacity: 0 }}
       transition={{ duration: 1.15, delay: 0.08, ease: SESSION_EASE }}
