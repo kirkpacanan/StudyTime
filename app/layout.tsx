@@ -21,9 +21,13 @@ const geistMono = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "StudyTime — Smart study monitoring",
+  title: "StudyTime",
   description:
     "IoT-style study monitoring: focus detection, sessions, and weekly performance reports.",
+  icons: {
+    icon: "/studytime-logo.png",
+    apple: "/studytime-logo.png",
+  },
 };
 
 const themeInit = `(function(){try{var k='studytime_theme',t=localStorage.getItem(k),r=document.documentElement;if(t==='dark')r.classList.add('dark');else if(t==='light')r.classList.remove('dark');else if(window.matchMedia('(prefers-color-scheme:dark)').matches)r.classList.add('dark');}catch(e){}})();`;
