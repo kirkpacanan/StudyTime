@@ -20,7 +20,7 @@ const ease = [0.16, 1, 0.3, 1] as const;
 const container = {
   hidden: {},
   show: {
-    transition: { staggerChildren: 0.07, delayChildren: 0.04 },
+    transition: { staggerChildren: 0.06, delayChildren: 0.04 },
   },
 };
 
@@ -41,9 +41,13 @@ export default function SignupPage() {
   } = useSupabaseReady();
   const router = useRouter();
   const reduce = useReducedMotion();
-  const [name, setName] = useState("");
+
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [birthday, setBirthday] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   /** After sign-up: show success before navigating (blocks the logged-in auto-redirect). */
@@ -65,8 +69,15 @@ export default function SignupPage() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
+
+    if (password !== confirmPassword) {
+      setErr("Passwords do not match.");
+      return;
+    }
+
     setLoading(true);
-    const res = await signUp(email, password, name);
+    const fullName = `${firstName} ${lastName}`.trim();
+    const res = await signUp(email, password, fullName, birthday || undefined);
     setLoading(false);
     if (!res.ok) {
       setErr(res.error);
@@ -79,6 +90,7 @@ export default function SignupPage() {
     }
     setSuccessKind("sign_in_next");
     setPassword("");
+    setConfirmPassword("");
   }
 
   if (!ready || !supabaseConfigReady) {
@@ -113,13 +125,14 @@ export default function SignupPage() {
           variants={item}
           className="text-xl font-semibold tracking-tight text-text"
         >
-          {successKind ? "You’re all set" : "Create your account"}
+          {successKind ? "You're all set" : "Create your account"}
         </motion.h1>
         <motion.p variants={item} className="mt-1 text-sm text-muted">
           {successKind
             ? "Your StudyTime account is ready."
             : "Start monitoring focus and study performance."}
         </motion.p>
+
         {successKind ? (
           <motion.div
             variants={item}
@@ -136,7 +149,8 @@ export default function SignupPage() {
             ) : (
               <>
                 <p className="text-sm text-emerald-900/90 dark:text-emerald-100/85">
-                  Sign in with your email and password to continue.
+                  Check your email to confirm your address, then sign in to
+                  continue.
                 </p>
                 <Link
                   href="/login"
@@ -150,6 +164,7 @@ export default function SignupPage() {
             )}
           </motion.div>
         ) : null}
+
         {!supabaseEnabled ? (
           <motion.p
             variants={item}
@@ -158,25 +173,73 @@ export default function SignupPage() {
             {supabaseRequiredMessage()}
           </motion.p>
         ) : null}
+
         <form
           className={`mt-6 space-y-4 ${successKind ? "hidden" : ""}`}
           onSubmit={onSubmit}
         >
+          {/* First Name + Last Name side by side */}
+          <motion.div variants={item} className="grid grid-cols-2 gap-3">
+            <div>
+              <label
+                className="text-xs font-medium text-muted"
+                htmlFor="firstName"
+              >
+                First name
+              </label>
+              <Input
+                id="firstName"
+                autoComplete="given-name"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                className="mt-1"
+                placeholder="Alex"
+                required
+              />
+            </div>
+            <div>
+              <label
+                className="text-xs font-medium text-muted"
+                htmlFor="lastName"
+              >
+                Last name
+              </label>
+              <Input
+                id="lastName"
+                autoComplete="family-name"
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                className="mt-1"
+                placeholder="Rivera"
+                required
+              />
+            </div>
+          </motion.div>
+
+          {/* Birthday */}
           <motion.div variants={item}>
-            <label className="text-xs font-medium text-muted" htmlFor="name">
-              Name
+            <label
+              className="text-xs font-medium text-muted"
+              htmlFor="birthday"
+            >
+              Birthday
             </label>
             <Input
-              id="name"
-              autoComplete="name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
+              id="birthday"
+              type="date"
+              autoComplete="bday"
+              value={birthday}
+              onChange={(e) => setBirthday(e.target.value)}
               className="mt-1"
-              placeholder="Alex"
             />
           </motion.div>
+
+          {/* Email */}
           <motion.div variants={item}>
-            <label className="text-xs font-medium text-muted" htmlFor="email">
+            <label
+              className="text-xs font-medium text-muted"
+              htmlFor="email"
+            >
               Email
             </label>
             <Input
@@ -189,6 +252,8 @@ export default function SignupPage() {
               required
             />
           </motion.div>
+
+          {/* Password */}
           <motion.div variants={item}>
             <label
               className="text-xs font-medium text-muted"
@@ -206,6 +271,26 @@ export default function SignupPage() {
               minLength={6}
             />
           </motion.div>
+
+          {/* Confirm Password */}
+          <motion.div variants={item}>
+            <label
+              className="text-xs font-medium text-muted"
+              htmlFor="confirmPassword"
+            >
+              Confirm password
+            </label>
+            <PasswordInput
+              id="confirmPassword"
+              autoComplete="new-password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              className="mt-1"
+              required
+              minLength={6}
+            />
+          </motion.div>
+
           {err ? (
             <motion.p
               initial={{ opacity: 0, x: -6 }}
@@ -215,16 +300,18 @@ export default function SignupPage() {
               {err}
             </motion.p>
           ) : null}
+
           <motion.div variants={item}>
             <Button
               type="submit"
               className="w-full"
               disabled={loading || !supabaseEnabled}
             >
-              {loading ? "Creating…" : "Sign up"}
+              {loading ? "Creating account…" : "Create account"}
             </Button>
           </motion.div>
         </form>
+
         {successKind ? null : (
           <motion.p
             variants={item}
@@ -232,7 +319,7 @@ export default function SignupPage() {
           >
             Already have an account?{" "}
             <Link
-              className="font-medium text-primary underline-offset-4 transition hover:underline"
+              className="font-medium text-primary underline-offset-4 transition hover:underline dark:text-cyan-300"
               href="/login"
             >
               Sign in

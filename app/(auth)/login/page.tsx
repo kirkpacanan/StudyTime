@@ -753,12 +753,20 @@ export default function LoginPage() {
                   />
                 </motion.div>
                 <motion.div variants={item}>
-                  <label
-                    className="text-xs font-medium text-muted"
-                    htmlFor="password"
-                  >
-                    Password
-                  </label>
+                  <div className="flex items-center justify-between">
+                    <label
+                      className="text-xs font-medium text-muted"
+                      htmlFor="password"
+                    >
+                      Password
+                    </label>
+                    <Link
+                      href="/forgot-password"
+                      className="text-xs font-medium text-primary underline-offset-4 transition hover:underline dark:text-cyan-300"
+                    >
+                      Forgot password?
+                    </Link>
+                  </div>
                   <PasswordInput
                     id="password"
                     autoComplete="current-password"
@@ -783,13 +791,6 @@ export default function LoginPage() {
                   </Button>
                 </motion.div>
               </form>
-              <motion.p
-                variants={item}
-                className="mt-4 text-center text-xs text-muted"
-              >
-                Demo: <span className="font-mono">demo@studytime.app</span> /{" "}
-                <span className="font-mono">demo1234</span>
-              </motion.p>
               <motion.p
                 variants={item}
                 className="mt-3 text-center text-sm text-muted"

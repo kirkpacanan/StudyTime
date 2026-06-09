@@ -55,6 +55,7 @@ export async function signUp(
   email: string,
   password: string,
   name: string,
+  birthday?: string,
 ): Promise<
   | { ok: true; user: PublicUser; hasSession: boolean }
   | { ok: false; error: string }
@@ -76,7 +77,10 @@ export async function signUp(
     email: normalized,
     password,
     options: {
-      data: { name: name.trim() || "Student" },
+      data: {
+        name: name.trim() || "Student",
+        birthday: birthday ?? null,
+      },
     },
   });
   if (error) return { ok: false, error: error.message };
@@ -86,6 +90,25 @@ export async function signUp(
     user: mapSupabaseUser(data.user),
     hasSession: !!data.session,
   };
+}
+
+export async function resetPasswordForEmail(
+  email: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!isSupabaseEnabled()) {
+    return { ok: false, error: supabaseRequiredMessage() };
+  }
+  const supabase = getSupabaseBrowser();
+  const redirectTo =
+    typeof window !== "undefined"
+      ? `${window.location.origin}/reset-password`
+      : "/reset-password";
+  const { error } = await supabase.auth.resetPasswordForEmail(
+    email.trim().toLowerCase(),
+    { redirectTo },
+  );
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
 }
 
 async function finishDemoSupabaseSignIn(
