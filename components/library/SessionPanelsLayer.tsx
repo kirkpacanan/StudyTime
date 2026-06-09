@@ -41,8 +41,18 @@ type SessionPanelsLayerProps = {
   layout?: "embedded" | "immersive";
 };
 
+// Vertical offsets for the floating panels.
+//
+// embedded — library card inside the app shell.
+//   The SessionTopBar pill ends at ≈60 px (mobile, pt-3 + py-2.5) and
+//   ≈68 px (sm, pt-4 + py-3).  Give each a ≥12 px breathing gap so the
+//   panels never touch the pill in the windowed layout.
+//
+// immersive — full-screen overlay.
+//   The pill has the same height but the entire viewport is the library, so
+//   larger offsets feel natural and were already correct.
 const PANEL_TOP = {
-  embedded: { vision: "top-14 sm:top-16", timer: "top-[4.25rem] sm:top-[4.75rem]" },
+  embedded: { vision: "top-[4.5rem] sm:top-20", timer: "top-[5rem] sm:top-[5.5rem]" },
   immersive: { vision: "top-[5.5rem]", timer: "top-[6rem]" },
 } as const;
 /** Shared right-column width — matches Focus panel. */

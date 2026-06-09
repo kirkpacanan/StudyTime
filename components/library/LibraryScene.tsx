@@ -81,18 +81,19 @@ export function LibraryScene({
       style={{ width: "100%", height: "100%", background: "#1a1206" }}
     >
       <color attach="background" args={["#1a1206"]} />
-      <fog attach="fog" args={["#1a1206", 18, 45]} />
+      {/* Fog tuned for the spacious 36×54 reading hall */}
+      <fog attach="fog" args={["#1a1206", 28, 85]} />
 
-      <PerspectiveCamera makeDefault position={[1, 12, 9]} fov={58} near={0.1} far={80} />
+      <PerspectiveCamera makeDefault position={[0, 20, 22]} fov={65} near={0.1} far={110} />
 
       <OrbitControls
         ref={controlsRef}
         enablePan={false}
-        minDistance={8}
-        maxDistance={24}
+        minDistance={12}
+        maxDistance={42}
         minPolarAngle={0.12}
         maxPolarAngle={Math.PI / 2.15}
-        target={[1, 0.3, 0]}
+        target={[0, 0, -3]}
       />
 
       <Suspense fallback={null}>

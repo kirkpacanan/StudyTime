@@ -545,12 +545,21 @@ export default function SessionPage() {
 
   return (
     <motion.div
-      layout
+      // `layout` is intentionally omitted.  framer-motion's layout animation
+      // applies CSS scale/translate transforms to the element which:
+      //   (a) can leave a residual scaleY from the card→viewport ratio, and
+      //   (b) the transforms interact with `position: fixed` incorrectly when
+      //       the animation hasn't fully settled.
+      // The border-radius still transitions smoothly via `animate` below.
       className={cn(
         "overflow-hidden bg-[#1a1206]",
         isImmersive
           ? "fixed inset-0 z-[200]"
-          : "relative min-h-[min(720px,calc(100dvh-5.5rem))] w-full flex-1 rounded-2xl ring-1 ring-white/[0.08] shadow-[0_24px_80px_rgba(0,0,0,0.35)]",
+          // Fill the viewport minus the sticky Topbar (h-16 = 64 px) and the
+          // session main's padding (p-2 = 8 px × 2 on mobile; md:p-3 = 12 px × 2).
+          // Using `h-[...]` instead of `min-h-[...]` so the card always fills
+          // its slot regardless of flex-parent height resolution.
+          : "relative h-[calc(100dvh-5rem)] md:h-[calc(100dvh-5.5rem)] w-full flex-1 rounded-2xl ring-1 ring-white/[0.08] shadow-[0_24px_80px_rgba(0,0,0,0.35)]",
       )}
       initial={false}
       animate={{
