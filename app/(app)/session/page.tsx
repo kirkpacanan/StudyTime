@@ -139,6 +139,12 @@ function createAlarmController(): AlarmController {
   };
 }
 
+function fmt(sec: number): string {
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
 function LibraryLoadingScreen({ embedded = false }: { embedded?: boolean }) {
   const reduce = useReducedMotion();
   return (
@@ -350,6 +356,7 @@ export default function SessionPage() {
     setRunning(false);
     setPaused(false);
     resetLive();
+    if (typeof document !== "undefined") document.title = "StudyTime";
     sessionStartedAtRef.current = null;
     samplesRef.current = []; eventsRef.current = [];
     focusMsRef.current = 0; breakMsRef.current = 0; sessionMsRef.current = 0;
@@ -381,6 +388,14 @@ export default function SessionPage() {
     }, 1000);
     return () => clearInterval(id);
   }, [running, paused]);
+
+  // Tab title — keep timer visible when user switches away from the tab
+  useEffect(() => {
+    if (!running) return;
+    document.title = phase === "focus"
+      ? `Focus ${fmt(remainingSec)} · StudyTime`
+      : `Break ${fmt(remainingSec)} · StudyTime`;
+  }, [running, phase, remainingSec]);
 
   // Session live context
   useEffect(() => {
