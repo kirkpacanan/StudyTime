@@ -52,5 +52,7 @@ export type BuddyState = {
   prestige: number;
   currentStreak: number;
   pairedSince: string | null;
-  status: "pending" | "active" | "ended";
+  requestedAt: string | null;
+  requestId: string | null;
+  status: "active" | "pending_out" | "pending_in";
 };

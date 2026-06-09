@@ -10,7 +10,7 @@ import { isSupabaseEnabled } from "@/lib/supabase/config";
 import { timeAgo } from "@/lib/social/format";
 import type { AppNotification } from "@/lib/social/types";
 import { AnimatePresence, motion } from "framer-motion";
-import { Award, Bell, Check, UserPlus, Users } from "lucide-react";
+import { Award, Bell, Check, Heart, UserPlus, Users, X } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -51,6 +51,44 @@ function label(n: AppNotification): {
           username: p.username as string | null,
           publicUid: p.publicUid as string | null,
         }),
+      };
+    case "buddy_request":
+      return {
+        actor,
+        text: "sent you a study buddy request",
+        icon: Heart,
+        href: "/leaderboard",
+      };
+    case "buddy_request_accepted":
+      return {
+        actor,
+        text: "accepted your study buddy request",
+        icon: Heart,
+        href: profileHref({
+          username: p.username as string | null,
+          publicUid: p.publicUid as string | null,
+        }),
+      };
+    case "buddy_request_declined":
+      return {
+        actor,
+        text: "declined your study buddy request",
+        icon: X,
+        href: "/leaderboard",
+      };
+    case "buddy_request_canceled":
+      return {
+        actor,
+        text: "canceled their study buddy request",
+        icon: X,
+        href: "/leaderboard",
+      };
+    case "buddy_removed":
+      return {
+        actor,
+        text: "removed you as a study buddy",
+        icon: Users,
+        href: "/leaderboard",
       };
     case "buddy_paired":
       return {

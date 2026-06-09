@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/cn";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { useAuth } from "@/hooks/useAuth";
 import { signUp } from "@/lib/auth";
 import { supabaseRequiredMessage } from "@/lib/supabase/config";
@@ -195,9 +196,8 @@ export default function SignupPage() {
             >
               Password
             </label>
-            <Input
+            <PasswordInput
               id="password"
-              type="password"
               autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}

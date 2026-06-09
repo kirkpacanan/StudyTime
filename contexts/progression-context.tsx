@@ -16,6 +16,10 @@ import {
   unpairBuddy,
 } from "@/lib/gamification/progression-storage";
 import {
+  cancelStudyBuddyRequest,
+  respondStudyBuddyRequest,
+} from "@/lib/social/buddy-service";
+import {
   createContext,
   useCallback,
   useContext,
@@ -34,6 +38,11 @@ type ProgressionContextValue = {
   togglePinnedBadge: (id: AchievementId) => Promise<void>;
   equipTitle: (titleId: string | null) => Promise<void>;
   pair: (buddyId: string) => Promise<{ ok: boolean; error?: string }>;
+  respondBuddyRequest: (
+    requestId: string,
+    accept: boolean,
+  ) => Promise<{ ok: boolean; error?: string }>;
+  cancelBuddyRequest: (requestId: string) => Promise<{ ok: boolean; error?: string }>;
   unpair: () => Promise<{ ok: boolean; error?: string }>;
   prestige: () => Promise<{ ok: boolean; error?: string }>;
 };
@@ -142,6 +151,26 @@ export function ProgressionProvider({
     [userId, refresh],
   );
 
+  const respondBuddyRequest = useCallback(
+    async (requestId: string, accept: boolean) => {
+      if (!userId) return { ok: false, error: "Not signed in." };
+      const res = await respondStudyBuddyRequest(requestId, accept);
+      if (res.ok) await refresh();
+      return res.ok ? { ok: true } : { ok: false, error: res.error };
+    },
+    [userId, refresh],
+  );
+
+  const cancelBuddyRequest = useCallback(
+    async (requestId: string) => {
+      if (!userId) return { ok: false, error: "Not signed in." };
+      const res = await cancelStudyBuddyRequest(requestId);
+      if (res.ok) await refresh();
+      return res.ok ? { ok: true } : { ok: false, error: res.error };
+    },
+    [userId, refresh],
+  );
+
   const unpair = useCallback(async () => {
     if (!userId) return { ok: false, error: "Not signed in." };
     const res = await unpairBuddy(userId);
@@ -166,6 +195,8 @@ export function ProgressionProvider({
       togglePinnedBadge,
       equipTitle,
       pair,
+      respondBuddyRequest,
+      cancelBuddyRequest,
       unpair,
       prestige,
     }),
@@ -178,6 +209,8 @@ export function ProgressionProvider({
       togglePinnedBadge,
       equipTitle,
       pair,
+      respondBuddyRequest,
+      cancelBuddyRequest,
       unpair,
       prestige,
     ],

@@ -50,6 +50,7 @@ import {
   Zap,
 } from "lucide-react";
 import dynamic from "next/dynamic";
+import { Button } from "@/components/ui/button";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { loadAvatarUrl } from "@/lib/library/persist-avatar";
 
@@ -592,13 +593,14 @@ export default function ProfilePage() {
             </p>
           </div>
         </div>
-        <button
+        <Button
           type="button"
+          variant="primary"
           onClick={() => setShowLibraryAvatarCreator(true)}
-          className="shrink-0 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:opacity-90"
+          className="shrink-0"
         >
           {libraryAvatarUrl ? "Change avatar" : "Create avatar"}
-        </button>
+        </Button>
       </div>
 
       {/* ── Stats row ── */}
@@ -824,8 +826,11 @@ export default function ProfilePage() {
       {/* 3D avatar creator (profile — existing users) */}
       {showLibraryAvatarCreator && (
         <AvatarCreator
+          key={libraryAvatarUrl ?? "new"}
+          variant="app"
+          initialAvatarUrl={libraryAvatarUrl}
           title={libraryAvatarUrl ? "Change your avatar" : "Create your avatar"}
-          subtitle="Pick colors for your blocky library character."
+          subtitle="Pick colors and styles for your blocky library character."
           onAvatarSaved={(url) => {
             setLibraryAvatarUrl(url);
             setShowLibraryAvatarCreator(false);

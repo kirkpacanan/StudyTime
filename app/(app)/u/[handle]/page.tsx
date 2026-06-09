@@ -4,6 +4,8 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/social/UserAvatar";
 import { RelationshipBadge } from "@/components/social/RelationshipBadge";
+import { UnfriendConfirmModal } from "@/components/social/UnfriendConfirmModal";
+import { UnpairBuddyConfirmModal } from "@/components/social/UnpairBuddyConfirmModal";
 import { RankChip } from "@/components/gamification/RankChip";
 import { PinnedAchievementBadge } from "@/components/gamification/PinnedAchievementBadge";
 import { ACHIEVEMENTS, type AchievementId } from "@/lib/gamification/achievements";
@@ -41,7 +43,8 @@ import { useCallback, useEffect, useState } from "react";
 export default function PublicProfilePage() {
   const params = useParams<{ handle: string }>();
   const router = useRouter();
-  const { snapshot, pair, unpair } = useProgression();
+  const { snapshot, pair, respondBuddyRequest, cancelBuddyRequest, unpair } =
+    useProgression();
   const [card, setCard] = useState<PublicProfileCard | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -49,6 +52,10 @@ export default function PublicProfilePage() {
   const [error, setError] = useState<string | null>(null);
   const [incomingRequestId, setIncomingRequestId] = useState<string | null>(null);
   const [copiedUid, setCopiedUid] = useState(false);
+  const [showUnfriendModal, setShowUnfriendModal] = useState(false);
+  const [unfriendBusy, setUnfriendBusy] = useState(false);
+  const [showUnpairModal, setShowUnpairModal] = useState(false);
+  const [unpairBusy, setUnpairBusy] = useState(false);
 
   const handle = decodeURIComponent(params.handle ?? "");
 
@@ -127,14 +134,22 @@ export default function PublicProfilePage() {
     }
   };
 
-  const onRemoveFriend = async () => {
+  const onRemoveFriend = () => {
     if (!card) return;
-    setBusy(true);
     setError(null);
+    setShowUnfriendModal(true);
+  };
+
+  const executeUnfriend = async () => {
+    if (!card) return;
+    setUnfriendBusy(true);
+    setError(null);
+    const name = card.displayName;
     const res = await removeFriend(card.userId);
-    setBusy(false);
+    setUnfriendBusy(false);
     if (res.ok) {
-      setNotice("Friend removed.");
+      setShowUnfriendModal(false);
+      setNotice(`${name} has been removed from your friends.`);
       void load();
     } else {
       setError(res.error);
@@ -155,30 +170,81 @@ export default function PublicProfilePage() {
     }
   };
 
-  const onSetBuddy = async () => {
+  const onSendBuddyRequest = async () => {
     if (!card) return;
     setBusy(true);
     setError(null);
     const res = await pair(card.userId);
     setBusy(false);
     if (res.ok) {
-      setNotice("Study buddy paired!");
+      setNotice("Study buddy request sent!");
       void load();
     } else {
-      setError(res.error ?? "Could not set buddy.");
+      setError(res.error ?? "Could not send request.");
     }
   };
 
-  const onUnpairBuddy = async () => {
+  const onAcceptBuddyRequest = async () => {
+    const requestId = snapshot?.buddy?.requestId;
+    if (!requestId) return;
     setBusy(true);
     setError(null);
-    const res = await unpair();
+    const res = await respondBuddyRequest(requestId, true);
     setBusy(false);
     if (res.ok) {
+      setNotice("Study buddy request accepted!");
+      void load();
+    } else {
+      setError(res.error ?? "Could not accept request.");
+    }
+  };
+
+  const onDeclineBuddyRequest = async () => {
+    const requestId = snapshot?.buddy?.requestId;
+    if (!requestId) return;
+    setBusy(true);
+    setError(null);
+    const res = await respondBuddyRequest(requestId, false);
+    setBusy(false);
+    if (res.ok) {
+      setNotice("Study buddy request declined.");
+      void load();
+    } else {
+      setError(res.error ?? "Could not decline request.");
+    }
+  };
+
+  const onCancelBuddyRequest = async () => {
+    const requestId = snapshot?.buddy?.requestId;
+    if (!requestId) return;
+    setBusy(true);
+    setError(null);
+    const res = await cancelBuddyRequest(requestId);
+    setBusy(false);
+    if (res.ok) {
+      setNotice("Study buddy request canceled.");
+      void load();
+    } else {
+      setError(res.error ?? "Could not cancel request.");
+    }
+  };
+
+  const onUnpairBuddy = () => {
+    setError(null);
+    setShowUnpairModal(true);
+  };
+
+  const executeUnpairBuddy = async () => {
+    setUnpairBusy(true);
+    setError(null);
+    const res = await unpair();
+    setUnpairBusy(false);
+    if (res.ok) {
+      setShowUnpairModal(false);
       setNotice("Study buddy removed.");
       void load();
     } else {
-      setError(res.error ?? "Could not unpair.");
+      setError(res.error ?? "Could not remove study buddy.");
     }
   };
 
@@ -232,14 +298,29 @@ export default function PublicProfilePage() {
   const isPendingOut = card.relationship === "pending_out";
   const isBlocked =
     card.relationship === "blocked" || card.relationship === "blocked_by";
-  const currentBuddyId = snapshot?.buddy?.buddyId ?? null;
-  const isYourBuddy = currentBuddyId === card.userId;
-  const canSetBuddy = isFriend && !isSelf && !isYourBuddy;
+  const buddyState = snapshot?.buddy ?? null;
+  const hasActiveBuddy = buddyState?.status === "active";
+  const hasPendingOut = buddyState?.status === "pending_out";
+  const hasPendingIn = buddyState?.status === "pending_in";
+  const isYourBuddy = hasActiveBuddy && buddyState?.buddyId === card.userId;
+  const buddyRequestToThisUser =
+    hasPendingOut && buddyState?.buddyId === card.userId;
+  const buddyRequestFromThisUser =
+    hasPendingIn && buddyState?.buddyId === card.userId;
+  const canSendBuddyRequest =
+    isFriend &&
+    !isSelf &&
+    !isYourBuddy &&
+    !hasActiveBuddy &&
+    !hasPendingOut &&
+    !buddyRequestToThisUser &&
+    !buddyRequestFromThisUser;
   const pinned = card.loadout.pinnedBadges
     .filter((id): id is AchievementId => id in ACHIEVEMENTS)
     .slice(0, 3);
 
   return (
+    <>
     <ProfileShell>
       <Card className="overflow-hidden">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
@@ -306,7 +387,7 @@ export default function PublicProfilePage() {
             {!isSelf && !isBlocked ? (
               <div className="mt-4 flex flex-wrap gap-2">
                 {isFriend ? (
-                  <Button variant="secondary" onClick={onRemoveFriend} disabled={busy}>
+                  <Button variant="secondary" onClick={onRemoveFriend} disabled={busy || unfriendBusy}>
                     <UserMinus className="h-4 w-4" /> Remove friend
                   </Button>
                 ) : isPendingIn ? (
@@ -322,14 +403,34 @@ export default function PublicProfilePage() {
                     <UserPlus className="h-4 w-4" /> Add friend
                   </Button>
                 ) : null}
-                {canSetBuddy ? (
-                  <Button variant="secondary" onClick={onSetBuddy} disabled={busy}>
-                    <Heart className="h-4 w-4" /> Set as study buddy
+                {canSendBuddyRequest ? (
+                  <Button variant="secondary" onClick={onSendBuddyRequest} disabled={busy}>
+                    <Heart className="h-4 w-4" /> Add study buddy
                   </Button>
                 ) : null}
+                {buddyRequestToThisUser ? (
+                  <Button variant="secondary" onClick={onCancelBuddyRequest} disabled={busy}>
+                    <Clock className="h-4 w-4" /> Request sent
+                  </Button>
+                ) : null}
+                {buddyRequestFromThisUser ? (
+                  <>
+                    <Button onClick={onAcceptBuddyRequest} disabled={busy}>
+                      <Check className="h-4 w-4" /> Accept buddy
+                    </Button>
+                    <Button variant="secondary" onClick={onDeclineBuddyRequest} disabled={busy}>
+                      Decline
+                    </Button>
+                  </>
+                ) : null}
                 {isYourBuddy ? (
-                  <Button variant="secondary" onClick={onUnpairBuddy} disabled={busy}>
-                    <Users className="h-4 w-4" /> Unpair buddy
+                  <Button variant="secondary" onClick={onUnpairBuddy} disabled={busy || unpairBusy}>
+                    <Users className="h-4 w-4" /> Remove buddy
+                  </Button>
+                ) : null}
+                {hasActiveBuddy && !isYourBuddy && isFriend ? (
+                  <Button variant="secondary" disabled title="Only one active study buddy is allowed">
+                    <Heart className="h-4 w-4" /> Add study buddy
                   </Button>
                 ) : null}
                 {!isFriend && !isPendingIn && !isPendingOut ? (
@@ -340,6 +441,12 @@ export default function PublicProfilePage() {
               </div>
             ) : null}
 
+            {hasActiveBuddy && !isYourBuddy && isFriend ? (
+              <p className="mt-3 text-xs text-muted">
+                You already have an active study buddy. Remove your current buddy
+                before pairing with someone else.
+              </p>
+            ) : null}
             {error ? (
               <p className="mt-3 text-xs font-medium text-alert">{error}</p>
             ) : null}
@@ -416,6 +523,58 @@ export default function PublicProfilePage() {
         </Card>
       ) : null}
     </ProfileShell>
+
+    <UnfriendConfirmModal
+      open={showUnfriendModal}
+      target={
+        card
+          ? {
+              userId: card.userId,
+              displayName: card.displayName,
+              username: card.username,
+              publicUid: card.publicUid,
+            }
+          : null
+      }
+      busy={unfriendBusy}
+      error={showUnfriendModal ? error : null}
+      onConfirm={() => void executeUnfriend()}
+      onCancel={() => {
+        if (unfriendBusy) return;
+        setShowUnfriendModal(false);
+        setError(null);
+      }}
+    />
+
+    <UnpairBuddyConfirmModal
+      open={showUnpairModal}
+      target={
+        buddyState?.status === "active"
+          ? {
+              userId: buddyState.buddyId,
+              displayName: buddyState.buddyName,
+              username: buddyState.username,
+              publicUid: buddyState.publicUid,
+            }
+          : card && isYourBuddy
+            ? {
+                userId: card.userId,
+                displayName: card.displayName,
+                username: card.username,
+                publicUid: card.publicUid,
+              }
+            : null
+      }
+      busy={unpairBusy}
+      error={showUnpairModal ? error : null}
+      onConfirm={() => void executeUnpairBuddy()}
+      onCancel={() => {
+        if (unpairBusy) return;
+        setShowUnpairModal(false);
+        setError(null);
+      }}
+    />
+    </>
   );
 
   function ProfileShell({ children }: { children: React.ReactNode }) {

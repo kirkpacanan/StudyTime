@@ -5,6 +5,7 @@ import { StudyTimeWordmark } from "@/components/StudyTimeLogo";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { useAuth } from "@/hooks/useAuth";
 import { signIn } from "@/lib/auth";
 import {
@@ -758,9 +759,8 @@ export default function LoginPage() {
                   >
                     Password
                   </label>
-                  <Input
+                  <PasswordInput
                     id="password"
-                    type="password"
                     autoComplete="current-password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}

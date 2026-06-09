@@ -583,6 +583,8 @@ export default function SessionPage() {
       {/* === Avatar Creator (full-screen, new users only) === */}
       {showAvatarCreator && (
         <AvatarCreator
+          key={avatarUrl ?? "new"}
+          initialAvatarUrl={avatarUrl}
           onAvatarSaved={handleAvatarSaved}
           onClose={handleSkipAvatar}
           showSkip

@@ -433,6 +433,7 @@ export async function getBuddy(userId: string): Promise<BuddyState | null> {
     const { data, error } = await supabase.rpc("get_study_buddy");
     if (error || !data) return null;
     const d = data as Record<string, unknown>;
+    const status = (d.status as BuddyState["status"]) ?? "active";
     return {
       buddyId: String(d.buddyId),
       buddyName: String(d.displayName ?? "Study buddy"),
@@ -444,7 +445,9 @@ export async function getBuddy(userId: string): Promise<BuddyState | null> {
       prestige: Number(d.prestige ?? 0),
       currentStreak: Number(d.currentStreak ?? 0),
       pairedSince: (d.pairedSince as string | null) ?? null,
-      status: (d.status as BuddyState["status"]) ?? "active",
+      requestedAt: (d.requestedAt as string | null) ?? null,
+      requestId: (d.requestId as string | null) ?? null,
+      status,
     };
   }
   const store = ls();
@@ -460,7 +463,9 @@ export async function pairBuddy(
   }
   if (isSupabaseEnabled()) {
     const supabase = getSupabaseBrowser();
-    const { error } = await supabase.rpc("pair_study_buddy", { p_buddy: buddyId });
+    const { error } = await supabase.rpc("send_study_buddy_request", {
+      p_target: buddyId,
+    });
     if (error) {
       return { ok: false, error: humanizeBuddyError(error.message) };
     }
@@ -478,8 +483,10 @@ export async function pairBuddy(
       level: 1,
       prestige: 0,
       currentStreak: 0,
-      pairedSince: new Date().toISOString(),
-      status: "active",
+      pairedSince: null,
+      requestedAt: new Date().toISOString(),
+      requestId: `local-${buddyId}`,
+      status: "pending_out",
     }),
   );
   return { ok: true };

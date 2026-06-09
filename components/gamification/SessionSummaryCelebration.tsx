@@ -1,16 +1,22 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { ModalBackdrop, ModalPortal } from "@/components/ui/modal-portal";
-import { playCelebrationChime } from "@/lib/gamification/sounds";
-import type { SessionCelebrationPayload } from "@/lib/gamification/session-celebration";
 import { RankChip } from "@/components/gamification/RankChip";
+import {
+  LibraryIconButton,
+  LibraryPanelHeader,
+} from "@/components/library/SessionChrome";
+import { ModalRoot } from "@/components/ui/modal-portal";
+import { cn } from "@/lib/cn";
+import type { SessionCelebrationPayload } from "@/lib/gamification/session-celebration";
+import { playCelebrationChime } from "@/lib/gamification/sounds";
+import { SESSION_EASE } from "@/lib/library/session-motion";
 import { renderShareCardPng } from "@/lib/share-card";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   ArrowUpRight,
+  BookOpen,
   CheckCircle2,
+  Clock,
   Download,
   Flame,
   Gift,
@@ -40,6 +46,26 @@ type SummaryBase = {
   saved: boolean;
 };
 
+function fmtDuration(ms: number): string {
+  const totalMin = Math.round(ms / 60_000);
+  if (totalMin < 60) return `${totalMin} min`;
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
+function fmtTimeRange(startedAt: string, endedAt: string): string {
+  const start = new Date(startedAt);
+  const end = new Date(endedAt);
+  const sameDay = start.toDateString() === end.toDateString();
+  const timeFmt = (d: Date) =>
+    d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  if (sameDay) {
+    return `${start.toLocaleDateString(undefined, { month: "short", day: "numeric" })} · ${timeFmt(start)} – ${timeFmt(end)}`;
+  }
+  return `${start.toLocaleString()} → ${end.toLocaleTimeString()}`;
+}
+
 export function SessionSummaryCelebration({
   summary,
   celebration,
@@ -55,10 +81,27 @@ export function SessionSummaryCelebration({
 }) {
   const [shareBusy, setShareBusy] = useState(false);
   const showParty = Boolean(celebration);
+  const reduce = useReducedMotion();
 
   useEffect(() => {
     if (showParty) playCelebrationChime();
   }, [showParty]);
+
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
 
   const handleSharePng = async () => {
     if (!celebration) return;
@@ -92,7 +135,7 @@ export function SessionSummaryCelebration({
             files: [file],
           });
         } catch {
-          // cancelled or unsupported files payload
+          /* cancelled or unsupported */
         }
       }
     } finally {
@@ -100,232 +143,313 @@ export function SessionSummaryCelebration({
     }
   };
 
+  const headerSubtitle = summary.saved
+    ? `${fmtDuration(summary.focusMs)} focused · ${summary.pomodoroBlocks} block${summary.pomodoroBlocks === 1 ? "" : "s"}`
+    : fmtTimeRange(summary.startedAt, summary.endedAt);
+
   return (
-    <ModalPortal className="p-4">
-      <ModalBackdrop label="Close summary" onClick={onClose} />
-      <Card
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="session-summary-title"
-        className="relative z-10 max-h-[min(92vh,880px)] w-full max-w-lg overflow-hidden shadow-2xl ring-1 ring-cyan-500/20 dark:ring-cyan-400/15"
-      >
-        <ConfettiBurst active={showParty} />
-        <button
-          type="button"
-          className="absolute right-3 top-3 z-20 rounded-lg p-2 text-white/70 hover:bg-white/10 hover:text-white dark:text-slate-400 dark:hover:text-white"
-          aria-label="Close"
-          onClick={onClose}
+    <ModalRoot>
+      <AnimatePresence>
+        <motion.div
+          key="session-summary-overlay"
+          className="fixed inset-0 z-[200] isolate flex items-center justify-center bg-black/50 p-4 pt-16 backdrop-blur-md"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.22, ease: SESSION_EASE }}
         >
-          <X className="h-5 w-5" />
-        </button>
-        <div className="relative z-[1] max-h-[inherit] overflow-y-auto">
-          <div
-            className={
-              showParty
-                ? "relative overflow-hidden bg-gradient-to-br from-slate-950 via-indigo-950/90 to-slate-950 px-5 py-8 text-white sm:px-8"
-                : "relative px-5 py-6 sm:px-6"
-            }
+          <motion.div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="session-summary-title"
+            className="library-glass-modal relative flex max-h-[min(92dvh,820px)] w-full max-w-lg flex-col"
+            initial={reduce ? false : { opacity: 0, scale: 0.96, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.96, y: 8 }}
+            transition={{ duration: 0.32, ease: SESSION_EASE }}
           >
-            {showParty ? (
-              <>
-                <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(56,189,248,0.15),transparent_55%)]" />
+            <div
+              className={cn(
+                "h-1 shrink-0 bg-gradient-to-r",
+                showParty
+                  ? "from-emerald-400 via-sky-400 to-emerald-500"
+                  : "from-sky-400 via-cyan-400 to-sky-500",
+              )}
+            />
+            <ConfettiBurst active={showParty} />
+
+            <LibraryPanelHeader
+              icon={
+                showParty ? (
+                  <Trophy className="h-4 w-4 shrink-0 text-emerald-300" />
+                ) : (
+                  <BookOpen className="h-4 w-4 shrink-0 text-sky-300" />
+                )
+              }
+              title="Session complete"
+              subtitle={headerSubtitle}
+              actions={
+                <LibraryIconButton label="Close summary" onClick={onClose}>
+                  <X className="h-3.5 w-3.5" />
+                </LibraryIconButton>
+              }
+            />
+
+            <div className="relative z-[1] min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5 sm:px-6">
+              {showParty ? (
                 <motion.div
-                  initial={{ scale: 0.92, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  transition={{ type: "spring", damping: 22, stiffness: 280 }}
-                  className="relative text-center"
+                  initial={reduce ? false : { opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.4, ease: SESSION_EASE, delay: 0.06 }}
+                  className="space-y-5"
                 >
-                  <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-cyan-500/20 ring-2 ring-cyan-400/40">
-                    <Sparkles className="h-9 w-9 text-cyan-300" />
-                  </div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-200/90">
-                    Session complete
-                  </p>
-                  <h2
-                    id="session-summary-title"
-                    className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl"
-                  >
-                    +{celebration!.pointsEarned}{" "}
-                    <span className="text-lg font-semibold text-cyan-100/90">
-                      focus pts
-                    </span>
-                  </h2>
-                  <p className="mt-2 text-sm text-slate-300">
-                    Lifetime total{" "}
-                    <span className="font-semibold text-white tabular-nums">
-                      {celebration!.totalFocusPoints.toLocaleString()}
-                    </span>{" "}
-                    pts
-                  </p>
-                </motion.div>
-
-                <div className="relative mt-6 grid gap-3 sm:grid-cols-2">
-                  <StatChip
-                    icon={<TrendingUp className="h-4 w-4 text-emerald-400" />}
-                    label="Monthly rank"
-                    value={
-                      celebration!.monthlyRank != null
-                        ? `#${celebration!.monthlyRank}`
-                        : "—"
-                    }
-                    sub={
-                      celebration!.monthlyRankDelta != null &&
-                      celebration!.monthlyRankDelta !== 0
-                        ? celebration!.monthlyRankDelta! > 0
-                          ? `↑ ${celebration!.monthlyRankDelta} places`
-                          : `↓ ${Math.abs(celebration!.monthlyRankDelta!)} places`
-                        : undefined
-                    }
-                  />
-                  <StatChip
-                    icon={<Trophy className="h-4 w-4 text-amber-400" />}
-                    label="All-time rank"
-                    value={
-                      celebration!.allTimeRank != null
-                        ? `#${celebration!.allTimeRank}`
-                        : "—"
-                    }
-                    sub={
-                      celebration!.allTimeRankDelta != null &&
-                      celebration!.allTimeRankDelta !== 0
-                        ? celebration!.allTimeRankDelta! > 0
-                          ? `↑ ${celebration!.allTimeRankDelta}`
-                          : `↓ ${Math.abs(celebration!.allTimeRankDelta!)}`
-                        : undefined
-                    }
-                  />
-                  <StatChip
-                    icon={<Flame className="h-4 w-4 text-orange-400" />}
-                    label="Streak"
-                    value={`${celebration!.streakDays} days`}
-                  />
-                  <StatChip
-                    icon={<Target className="h-4 w-4 text-cyan-400" />}
-                    label="Focus accuracy"
-                    value={`${summary.focusedRatio}%`}
-                  />
-                </div>
-
-                {celebration!.progression ? (
-                  <ProgressionPanel progression={celebration!.progression} />
-                ) : null}
-
-                {celebration!.newlyUnlocked.length > 0 ? (
-                  <div className="relative mt-5 rounded-xl border border-cyan-500/25 bg-black/25 p-4">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-cyan-200/80">
-                      New achievements
+                  <div className="library-glass-panel border-emerald-500/20 px-5 py-5 text-center">
+                    <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-500/15 ring-1 ring-emerald-400/30">
+                      <Sparkles className="h-7 w-7 text-emerald-300" />
+                    </div>
+                    <p className="library-text-label text-emerald-200/80">
+                      Focus points earned
                     </p>
-                    <ul className="mt-2 space-y-2">
-                      {celebration!.newlyUnlocked.map((a) => (
-                        <li
-                          key={a.id}
-                          className="flex items-start gap-2 text-sm text-slate-100"
-                        >
-                          <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
-                          <span>
-                            <span className="font-semibold">{a.title}</span>
-                            <span className="block text-xs text-slate-400">
-                              {a.description}
-                            </span>
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
+                    <h2
+                      id="session-summary-title"
+                      className="mt-1.5 text-3xl font-bold tabular-nums tracking-tight text-slate-50 sm:text-4xl"
+                    >
+                      +{celebration!.pointsEarned.toLocaleString()}
+                    </h2>
+                    <p className="mt-1.5 text-sm text-slate-300">
+                      Lifetime total{" "}
+                      <span className="font-semibold tabular-nums text-slate-100">
+                        {celebration!.totalFocusPoints.toLocaleString()}
+                      </span>{" "}
+                      pts
+                    </p>
                   </div>
-                ) : null}
 
-                <div className="relative mt-6 flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    className="gap-2 bg-white/10 text-white hover:bg-white/15"
-                    disabled={shareBusy}
-                    onClick={() => void handleSharePng()}
-                  >
-                    {shareBusy ? (
-                      "…"
-                    ) : (
-                      <>
-                        <Download className="h-4 w-4" />
-                        Save PNG
-                      </>
-                    )}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    className="gap-2 bg-cyan-500/20 text-cyan-50 hover:bg-cyan-500/30"
-                    disabled={shareBusy}
-                    onClick={() => void handleSharePng()}
-                  >
-                    <Share2 className="h-4 w-4" />
-                    Share card
-                  </Button>
-                  <Link
-                    href="/leaderboard"
-                    className="inline-flex items-center gap-2 rounded-xl border border-white/15 px-4 py-2.5 text-sm font-medium text-white/90 hover:bg-white/10"
-                  >
-                    <Link2 className="h-4 w-4" />
-                    Leaderboard
-                  </Link>
-                </div>
-              </>
-            ) : (
-              <div className="text-center">
-                <h2
-                  id="session-summary-title"
-                  className="text-lg font-semibold text-text"
-                >
-                  Session summary
-                </h2>
-                <p className="mt-1 text-xs text-muted">
-                  {new Date(summary.startedAt).toLocaleString()} →{" "}
-                  {new Date(summary.endedAt).toLocaleTimeString()}
-                </p>
-              </div>
-            )}
-          </div>
+                  <div className="grid gap-2.5 sm:grid-cols-2">
+                    <StatChip
+                      icon={<TrendingUp className="h-4 w-4 text-emerald-400" />}
+                      label="Monthly rank"
+                      value={
+                        celebration!.monthlyRank != null
+                          ? `#${celebration!.monthlyRank}`
+                          : "—"
+                      }
+                      sub={
+                        celebration!.monthlyRankDelta != null &&
+                        celebration!.monthlyRankDelta !== 0
+                          ? celebration!.monthlyRankDelta! > 0
+                            ? `↑ ${celebration!.monthlyRankDelta} places`
+                            : `↓ ${Math.abs(celebration!.monthlyRankDelta!)} places`
+                          : undefined
+                      }
+                    />
+                    <StatChip
+                      icon={<Trophy className="h-4 w-4 text-amber-400" />}
+                      label="All-time rank"
+                      value={
+                        celebration!.allTimeRank != null
+                          ? `#${celebration!.allTimeRank}`
+                          : "—"
+                      }
+                      sub={
+                        celebration!.allTimeRankDelta != null &&
+                        celebration!.allTimeRankDelta !== 0
+                          ? celebration!.allTimeRankDelta! > 0
+                            ? `↑ ${celebration!.allTimeRankDelta}`
+                            : `↓ ${Math.abs(celebration!.allTimeRankDelta!)}`
+                          : undefined
+                      }
+                    />
+                    <StatChip
+                      icon={<Flame className="h-4 w-4 text-orange-400" />}
+                      label="Streak"
+                      value={`${celebration!.streakDays} days`}
+                    />
+                    <StatChip
+                      icon={<Target className="h-4 w-4 text-sky-400" />}
+                      label="Focus accuracy"
+                      value={`${summary.focusedRatio}%`}
+                    />
+                  </div>
 
-          <div className="border-t border-white/10 bg-white/95 px-5 py-5 dark:border-white/10 dark:bg-slate-950/95 sm:px-6">
-            {!summary.saved ? (
-              <p className="text-sm text-muted">
-                Nothing was saved — enable the camera and complete a focus block
-                to earn points and ranks.
-              </p>
-            ) : (
-              <dl className="grid grid-cols-2 gap-3 text-sm">
-                <div className="rounded-lg border border-slate-200/80 bg-slate-50/80 px-3 py-2 dark:border-white/10 dark:bg-slate-900/40">
-                  <dt className="text-[11px] font-medium uppercase tracking-wide text-muted">
-                    Avg focus
-                  </dt>
-                  <dd className="font-semibold tabular-nums text-text">
-                    {summary.sampleCount > 0 ? `${summary.averageFocus}%` : "—"}
-                  </dd>
+                  {celebration!.progression ? (
+                    <ProgressionPanel progression={celebration!.progression} />
+                  ) : null}
+
+                  {celebration!.newlyUnlocked.length > 0 ? (
+                    <div className="library-glass-panel border-amber-500/20 p-4">
+                      <p className="library-text-label text-amber-200/80">
+                        New achievements
+                      </p>
+                      <ul className="mt-3 space-y-2.5">
+                        {celebration!.newlyUnlocked.map((a) => (
+                          <li
+                            key={a.id}
+                            className="flex items-start gap-2.5 text-sm text-slate-100"
+                          >
+                            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-amber-500/15 ring-1 ring-amber-400/25">
+                              <Sparkles className="h-3.5 w-3.5 text-amber-300" />
+                            </span>
+                            <span>
+                              <span className="font-semibold">{a.title}</span>
+                              <span className="mt-0.5 block text-xs leading-relaxed text-slate-400">
+                                {a.description}
+                              </span>
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+
+                  <div className="flex flex-wrap gap-2">
+                    <ShareActionButton
+                      disabled={shareBusy}
+                      onClick={() => void handleSharePng()}
+                      icon={<Download className="h-4 w-4" />}
+                      label={shareBusy ? "…" : "Save PNG"}
+                    />
+                    <ShareActionButton
+                      disabled={shareBusy}
+                      onClick={() => void handleSharePng()}
+                      icon={<Share2 className="h-4 w-4" />}
+                      label="Share card"
+                      accent
+                    />
+                    <Link
+                      href="/leaderboard"
+                      className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2.5 text-sm font-medium text-slate-200 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-white"
+                    >
+                      <Link2 className="h-4 w-4" />
+                      Leaderboard
+                    </Link>
+                  </div>
+                </motion.div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="text-center">
+                    <h2
+                      id="session-summary-title"
+                      className="text-lg font-semibold text-slate-50"
+                    >
+                      Session summary
+                    </h2>
+                    <p className="mt-1 text-xs text-slate-400">
+                      {fmtTimeRange(summary.startedAt, summary.endedAt)}
+                    </p>
+                  </div>
+                  {!summary.saved ? (
+                    <div className="library-glass-panel border-amber-500/20 px-4 py-4 text-sm leading-relaxed text-slate-300">
+                      Nothing was saved — enable the camera and complete a focus
+                      block to earn points and ranks.
+                    </div>
+                  ) : null}
                 </div>
-                <div className="rounded-lg border border-slate-200/80 bg-slate-50/80 px-3 py-2 dark:border-white/10 dark:bg-slate-900/40">
-                  <dt className="text-[11px] font-medium uppercase tracking-wide text-muted">
-                    ≥ threshold
-                  </dt>
-                  <dd className="font-semibold tabular-nums text-text">
-                    {summary.sampleCount > 0 ? `${summary.focusedRatio}%` : "—"}
-                  </dd>
+              )}
+
+              {summary.saved ? (
+                <div className={cn("grid grid-cols-2 gap-2.5", showParty && "mt-5")}>
+                  <SessionMetric
+                    icon={<Target className="h-3.5 w-3.5 text-sky-400" />}
+                    label="Avg focus"
+                    value={
+                      summary.sampleCount > 0 ? `${summary.averageFocus}%` : "—"
+                    }
+                  />
+                  <SessionMetric
+                    icon={<Clock className="h-3.5 w-3.5 text-emerald-400" />}
+                    label="≥ threshold"
+                    value={
+                      summary.sampleCount > 0 ? `${summary.focusedRatio}%` : "—"
+                    }
+                  />
+                  <SessionMetric
+                    icon={<BookOpen className="h-3.5 w-3.5 text-amber-400" />}
+                    label="Focus time"
+                    value={fmtDuration(summary.focusMs)}
+                  />
+                  <SessionMetric
+                    icon={<Zap className="h-3.5 w-3.5 text-fuchsia-400" />}
+                    label="Distractions"
+                    value={String(summary.distractionEvents)}
+                  />
                 </div>
-              </dl>
-            )}
-            <div className="mt-4 flex flex-wrap gap-2">
-              <Button type="button" onClick={onClose}>
+              ) : null}
+            </div>
+
+            <div className="library-glass-footer flex shrink-0 items-center gap-2.5 border-t border-white/[0.06] px-4 py-3">
+              <button
+                type="button"
+                onClick={onClose}
+                className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-sky-600 py-2.5 text-sm font-semibold text-white shadow-lg shadow-sky-900/40 transition duration-200 hover:bg-sky-500 active:scale-[0.98]"
+              >
+                <CheckCircle2 className="h-4 w-4" />
                 Done
-              </Button>
-              <Link href="/dashboard">
-                <Button type="button" variant="secondary">
-                  Dashboard
-                </Button>
+              </button>
+              <Link
+                href="/dashboard"
+                className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] py-2.5 text-sm font-medium text-slate-200 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-white"
+              >
+                Dashboard
               </Link>
             </div>
-          </div>
-        </div>
-      </Card>
-    </ModalPortal>
+          </motion.div>
+        </motion.div>
+      </AnimatePresence>
+    </ModalRoot>
+  );
+}
+
+function ShareActionButton({
+  icon,
+  label,
+  onClick,
+  disabled,
+  accent,
+}: {
+  icon: ReactNode;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  accent?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={cn(
+        "inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium transition duration-200 active:scale-[0.98] disabled:opacity-60",
+        accent
+          ? "border-sky-400/30 bg-sky-500/15 text-sky-100 hover:border-sky-400/50 hover:bg-sky-500/25"
+          : "border-white/10 bg-white/[0.04] text-slate-200 hover:border-white/20 hover:bg-white/[0.08] hover:text-white",
+      )}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
+function SessionMetric({
+  icon,
+  label,
+  value,
+}: {
+  icon: ReactNode;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="library-glass-panel px-3 py-2.5">
+      <div className="flex items-center gap-1.5 library-text-label normal-case tracking-normal text-slate-400">
+        {icon}
+        {label}
+      </div>
+      <p className="mt-1 text-lg font-semibold tabular-nums tracking-tight text-slate-50">
+        {value}
+      </p>
+    </div>
   );
 }
 
@@ -334,30 +458,30 @@ function ProgressionPanel({
 }: {
   progression: NonNullable<SessionCelebrationPayload["progression"]>;
 }) {
+  const reduce = useReducedMotion();
+
   return (
-    <div className="relative mt-5 space-y-3 rounded-xl border border-amber-400/25 bg-black/25 p-4">
-      <div className="flex items-center justify-between">
-        <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-amber-200/90">
+    <div className="library-glass-panel border-amber-500/20 p-4">
+      <div className="flex items-center justify-between gap-3">
+        <p className="flex items-center gap-1.5 library-text-label text-amber-200/90">
           <Zap className="h-4 w-4" />
           +{p.xpEarned.toLocaleString()} XP
         </p>
         <RankChip rank={p.rank} level={p.newLevel} prestige={p.prestige} />
       </div>
 
-      {/* XP breakdown */}
-      <ul className="space-y-0.5 text-[11px] text-slate-300">
+      <ul className="mt-3 space-y-1 text-[11px] text-slate-300">
         {p.xpItems.map((item) => (
-          <li key={item.key} className="flex justify-between">
+          <li key={item.key} className="flex justify-between gap-3">
             <span>{item.label}</span>
-            <span className="tabular-nums text-slate-200">
+            <span className="shrink-0 tabular-nums text-slate-200">
               +{item.amount.toLocaleString()}
             </span>
           </li>
         ))}
       </ul>
 
-      {/* Level bar */}
-      <div className="space-y-1">
+      <div className="mt-4 space-y-1.5">
         <div className="flex items-center justify-between text-[11px] text-slate-300">
           <span>Level {p.progress.level}</span>
           <span className="tabular-nums">
@@ -366,21 +490,21 @@ function ProgressionPanel({
               : `${p.progress.xpIntoLevel.toLocaleString()} / ${p.progress.xpForThisLevel.toLocaleString()}`}
           </span>
         </div>
-        <div className="h-2 overflow-hidden rounded-full bg-white/10">
+        <div className="h-2 overflow-hidden rounded-full bg-white/10 ring-1 ring-white/[0.06]">
           <motion.div
             className="h-full rounded-full bg-gradient-to-r from-amber-400 to-yellow-300"
-            initial={{ width: 0 }}
+            initial={reduce ? false : { width: 0 }}
             animate={{ width: `${p.progress.percent}%` }}
-            transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+            transition={{ duration: 0.8, ease: SESSION_EASE }}
           />
         </div>
       </div>
 
       {p.leveledUp ? (
         <motion.p
-          initial={{ opacity: 0, scale: 0.9 }}
+          initial={reduce ? false : { opacity: 0, scale: 0.96 }}
           animate={{ opacity: 1, scale: 1 }}
-          className="flex items-center gap-1.5 text-sm font-semibold text-amber-200"
+          className="mt-3 flex items-center gap-1.5 text-sm font-semibold text-amber-200"
         >
           <ArrowUpRight className="h-4 w-4" />
           Level up! {p.oldLevel} → {p.newLevel}
@@ -388,19 +512,19 @@ function ProgressionPanel({
       ) : null}
 
       {p.rankUp ? (
-        <div className="rounded-lg border border-amber-400/40 bg-amber-500/15 px-3 py-2 text-sm font-semibold text-amber-100">
+        <div className="mt-3 rounded-xl border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-sm font-semibold text-amber-100">
           New rank unlocked: {p.rank.title}!
         </div>
       ) : null}
 
       {p.completedQuests.length > 0 ? (
-        <div className="space-y-1">
+        <div className="mt-3 space-y-1">
           {p.completedQuests.map((q) => (
             <p
               key={q.id}
               className="flex items-center gap-1.5 text-xs text-emerald-300"
             >
-              <CheckCircle2 className="h-3.5 w-3.5" />
+              <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
               Quest complete: {q.title} (+{q.rewardXp} XP)
             </p>
           ))}
@@ -408,13 +532,13 @@ function ProgressionPanel({
       ) : null}
 
       {p.grantedCosmetics.length > 0 ? (
-        <div className="space-y-1">
+        <div className="mt-2 space-y-1">
           {p.grantedCosmetics.map((c) => (
             <p
               key={c.id}
               className="flex items-center gap-1.5 text-xs text-fuchsia-300"
             >
-              <Gift className="h-3.5 w-3.5" />
+              <Gift className="h-3.5 w-3.5 shrink-0" />
               Cosmetic unlocked: {c.name} ({c.type})
             </p>
           ))}
@@ -436,13 +560,15 @@ function StatChip({
   sub?: string;
 }) {
   return (
-    <div className="rounded-xl border border-white/10 bg-black/30 px-4 py-3 backdrop-blur-sm">
-      <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-400">
+    <div className="library-glass-panel px-3.5 py-3">
+      <div className="flex items-center gap-1.5 library-text-label normal-case tracking-normal text-slate-400">
         {icon}
         {label}
       </div>
-      <p className="mt-1 text-lg font-bold tabular-nums text-white">{value}</p>
-      {sub ? <p className="text-xs font-medium text-emerald-400">{sub}</p> : null}
+      <p className="mt-1 text-lg font-bold tabular-nums text-slate-50">{value}</p>
+      {sub ? (
+        <p className="mt-0.5 text-xs font-medium text-emerald-400">{sub}</p>
+      ) : null}
     </div>
   );
 }

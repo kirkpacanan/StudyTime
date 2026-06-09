@@ -4,6 +4,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/social/UserAvatar";
 import { SearchModal } from "@/components/social/SearchModal";
+import { UnfriendConfirmModal, type UnfriendTarget } from "@/components/social/UnfriendConfirmModal";
 import { usePresence } from "@/contexts/presence-context";
 import {
   listFriends,
@@ -18,7 +19,7 @@ import { profileHref, type Friend, type FriendRequest } from "@/lib/social/types
 import { cn } from "@/lib/cn";
 import { Check, Flame, Search, UserMinus, UserPlus, Users, X } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 type Tab = "friends" | "requests";
 
@@ -31,6 +32,10 @@ export default function FriendsPage() {
   const [loading, setLoading] = useState(true);
   const [searchOpen, setSearchOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [unfriendTarget, setUnfriendTarget] = useState<UnfriendTarget | null>(null);
+  const [unfriendBusy, setUnfriendBusy] = useState(false);
+  const successTimerRef = useRef<number | null>(null);
 
   const refresh = useCallback(async () => {
     if (!isSupabaseEnabled()) {
@@ -53,6 +58,25 @@ export default function FriendsPage() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    return () => {
+      if (successTimerRef.current != null) {
+        window.clearTimeout(successTimerRef.current);
+      }
+    };
+  }, []);
+
+  const showSuccess = useCallback((message: string) => {
+    setSuccess(message);
+    if (successTimerRef.current != null) {
+      window.clearTimeout(successTimerRef.current);
+    }
+    successTimerRef.current = window.setTimeout(() => {
+      setSuccess(null);
+      successTimerRef.current = null;
+    }, 4000);
+  }, []);
 
   useEffect(() => {
     if (!isSupabaseEnabled()) return;
@@ -101,11 +125,36 @@ export default function FriendsPage() {
     await refresh();
   };
 
-  const unfriend = async (userId: string) => {
+  const confirmUnfriend = (friend: Friend) => {
     setError(null);
-    const res = await removeFriend(userId);
-    if (!res.ok) setError(res.error);
-    await refresh();
+    setUnfriendTarget({
+      userId: friend.userId,
+      displayName: friend.displayName,
+      username: friend.username,
+      publicUid: friend.publicUid,
+    });
+  };
+
+  const cancelUnfriend = () => {
+    if (unfriendBusy) return;
+    setUnfriendTarget(null);
+    setError(null);
+  };
+
+  const executeUnfriend = async () => {
+    if (!unfriendTarget) return;
+    setUnfriendBusy(true);
+    setError(null);
+    const name = unfriendTarget.displayName;
+    const res = await removeFriend(unfriendTarget.userId);
+    setUnfriendBusy(false);
+    if (res.ok) {
+      setUnfriendTarget(null);
+      showSuccess(`${name} has been removed from your friends.`);
+      await refresh();
+    } else {
+      setError(res.error);
+    }
   };
 
   if (!isSupabaseEnabled()) {
@@ -133,9 +182,18 @@ export default function FriendsPage() {
     <div className="space-y-6">
       <Header onSearch={() => setSearchOpen(true)} studyingCount={studyingCount} />
 
-      {error ? (
+      {error && !unfriendTarget ? (
         <p className="rounded-xl border border-alert/30 bg-alert/10 px-3 py-2 text-sm text-alert">
           {error}
+        </p>
+      ) : null}
+
+      {success ? (
+        <p
+          className="rounded-xl border border-success/30 bg-success/10 px-3 py-2 text-sm text-success"
+          role="status"
+        >
+          {success}
         </p>
       ) : null}
 
@@ -199,7 +257,7 @@ export default function FriendsPage() {
                 </Link>
                 <button
                   type="button"
-                  onClick={() => void unfriend(f.userId)}
+                  onClick={() => confirmUnfriend(f)}
                   className="rounded-lg p-2 text-muted transition hover:bg-white/40 hover:text-alert dark:hover:bg-white/10"
                   aria-label={`Remove ${f.displayName}`}
                 >
@@ -225,6 +283,15 @@ export default function FriendsPage() {
           setSearchOpen(false);
           void refresh();
         }}
+      />
+
+      <UnfriendConfirmModal
+        open={unfriendTarget != null}
+        target={unfriendTarget}
+        busy={unfriendBusy}
+        error={error}
+        onConfirm={() => void executeUnfriend()}
+        onCancel={cancelUnfriend}
       />
     </div>
   );

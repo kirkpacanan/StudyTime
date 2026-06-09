@@ -126,6 +126,24 @@ export type FriendRequest = {
   createdAt: string;
 };
 
+export type StudyBuddyRequest = {
+  requestId: string;
+  userId: string;
+  username: string | null;
+  publicUid: string;
+  displayName: string;
+  avatarId: string | null;
+  frameId: string | null;
+  level: number;
+  createdAt: string;
+};
+
+export type StudyBuddyStatus =
+  | "none"
+  | "active"
+  | "pending_out"
+  | "pending_in";
+
 export type ActivityVerb =
   | "session_completed"
   | "streak_milestone"
