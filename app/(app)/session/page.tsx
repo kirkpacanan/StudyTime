@@ -3,7 +3,8 @@
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
-import { Clock, BookOpen, ChevronRight, Sparkles, Check, ArrowLeft, X } from "lucide-react";
+import { Clock, BookOpen, ChevronRight, Sparkles, Check, ArrowLeft, X, AlertTriangle, LogOut } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import { useSessionLive } from "@/contexts/session-live-context";
 import { useProgression } from "@/contexts/progression-context";
@@ -186,10 +187,11 @@ const DURATION_OPTIONS = [
 
 export default function SessionPage() {
   const reduce = useReducedMotion();
+  const router = useRouter();
   const { isImmersive, toggleImmersive, exitImmersive, layoutTransition } =
     useSessionImmersive();
-  const { user } = useAuth();
-  const { setLive, resetLive } = useSessionLive();
+  const { user, signOut } = useAuth();
+  const { setLive, resetLive, pendingNavDestination, clearPendingNav } = useSessionLive();
   const { refresh: refreshProgression } = useProgression();
 
   // Settings
@@ -250,6 +252,10 @@ export default function SessionPage() {
   const [summaryOpen, setSummaryOpen] = useState(false);
   const panelsLayerRef = useRef<HTMLDivElement>(null);
 
+  // Exit-confirmation dialog (shown when Sidebar/Topbar intercepts navigation)
+  const [exitDialogOpen, setExitDialogOpen] = useState(false);
+  const [pendingExitDest, setPendingExitDest] = useState<string | null>(null);
+
   // Load settings
   useEffect(() => {
     if (!user) return;
@@ -288,10 +294,20 @@ export default function SessionPage() {
     setSummaryOpen(false);
     window.setTimeout(() => {
       setSummary(null);
-      setFlowState("seat_select");
-      setSelectedSeatId(null);
+      const dest = pendingExitDest;
+      if (dest) {
+        setPendingExitDest(null);
+        if (dest === "__logout__") {
+          void signOut();
+        } else {
+          router.push(dest);
+        }
+      } else {
+        setFlowState("seat_select");
+        setSelectedSeatId(null);
+      }
     }, 280);
-  }, []);
+  }, [pendingExitDest, signOut, router]);
 
   // Keyboard: Escape exits immersive mode (summary modal handles its own Escape)
   useEffect(() => {
@@ -372,6 +388,57 @@ export default function SessionPage() {
     setSummaryOpen(true);
     if (saved) void refreshProgression();
   }, [focusThreshold, resetLive, user, refreshProgression]);
+
+  // ── Exit-guard: watch for navigation requests from Sidebar / Topbar ─────────
+  useEffect(() => {
+    if (!pendingNavDestination) return;
+    // Snapshot the destination and clear it from the context immediately so
+    // the signal is consumed only once.
+    setPendingExitDest(pendingNavDestination);
+    clearPendingNav();
+    setExitDialogOpen(true);
+  }, [pendingNavDestination, clearPendingNav]);
+
+  // "Save & End" → run the full endSession flow (persists + shows summary).
+  // When the summary modal is closed, closeSummary will navigate to pendingExitDest.
+  const handleSaveAndExit = useCallback(async () => {
+    setExitDialogOpen(false);
+    await endSession();
+    // pendingExitDest is read by closeSummary after the summary modal closes.
+  }, [endSession]);
+
+  // "Leave without saving" → hard-stop everything and navigate immediately.
+  const handleExitWithoutSaving = useCallback(() => {
+    setExitDialogOpen(false);
+    const dest = pendingExitDest;
+    setPendingExitDest(null);
+    alarmRef.current?.stop();
+    setRunning(false);
+    setPaused(false);
+    resetLive();
+    if (typeof document !== "undefined") document.title = "StudyTime";
+    if (dest === "__logout__") {
+      void signOut();
+    } else if (dest) {
+      router.push(dest);
+    }
+  }, [pendingExitDest, resetLive, signOut, router]);
+
+  const handleStayInSession = useCallback(() => {
+    setExitDialogOpen(false);
+    setPendingExitDest(null);
+  }, []);
+
+  // Block accidental tab-close / hard refresh while a session is running.
+  useEffect(() => {
+    if (!running) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [running]);
 
   // Timer tick
   useEffect(() => {
@@ -832,6 +899,103 @@ export default function SessionPage() {
           />
         </motion.div>
       )}
+
+      {/* Exit-confirmation dialog */}
+      <AnimatePresence>
+        {exitDialogOpen ? (
+          <motion.div
+            key="exit-guard-backdrop"
+            className="fixed inset-0 z-[200] flex items-center justify-center p-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+          >
+            {/* Backdrop */}
+            <div
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+              onClick={handleStayInSession}
+            />
+
+            {/* Dialog card */}
+            <motion.div
+              key="exit-guard-card"
+              className="relative z-10 w-full max-w-sm overflow-hidden rounded-2xl border border-white/10 bg-[#1a1206]/95 shadow-2xl shadow-black/60 backdrop-blur-xl"
+              initial={{ opacity: 0, y: 14, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 10, scale: 0.97 }}
+              transition={{ duration: 0.26, ease: [0.16, 1, 0.3, 1] }}
+            >
+              {/* Amber top-bar accent */}
+              <div className="h-1 w-full bg-gradient-to-r from-amber-500 via-orange-400 to-amber-500" />
+
+              <div className="p-6">
+                {/* Icon + title */}
+                <div className="mb-4 flex items-start gap-3">
+                  <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-500/15">
+                    {pendingExitDest === "__logout__" ? (
+                      <LogOut className="h-4 w-4 text-amber-400" />
+                    ) : (
+                      <AlertTriangle className="h-4 w-4 text-amber-400" />
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-white">
+                      {pendingExitDest === "__logout__"
+                        ? "Log out during session?"
+                        : "Leave your study session?"}
+                    </p>
+                    <p className="mt-1 text-xs leading-relaxed text-slate-300">
+                      {pendingExitDest === "__logout__"
+                        ? "You're still in an active focus session. Logging out now will lose unsaved progress unless you save first."
+                        : "You have an active focus session running. Leaving now without saving will discard your focus data."}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Has data hint */}
+                {samplesRef.current.length > 0 ? (
+                  <div className="mb-4 flex items-center gap-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2">
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+                    <span className="text-xs text-amber-300">
+                      {samplesRef.current.length} focus samples collected — save them!
+                    </span>
+                  </div>
+                ) : null}
+
+                {/* Action buttons */}
+                <div className="flex flex-col gap-2">
+                  <button
+                    type="button"
+                    onClick={handleStayInSession}
+                    className="w-full rounded-xl bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-sky-900/40 transition hover:bg-sky-500"
+                  >
+                    Continue Studying
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleSaveAndExit()}
+                    className="w-full rounded-xl border border-emerald-500/30 bg-emerald-500/15 px-4 py-2.5 text-sm font-semibold text-emerald-300 transition hover:bg-emerald-500/25"
+                  >
+                    {pendingExitDest === "__logout__"
+                      ? "Save & Log Out"
+                      : "Save & Exit"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleExitWithoutSaving}
+                    className="w-full rounded-xl px-4 py-2.5 text-sm font-medium text-slate-400 transition hover:bg-white/5 hover:text-slate-200"
+                  >
+                    {pendingExitDest === "__logout__"
+                      ? "Log Out Without Saving"
+                      : "Leave Without Saving"}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
 
       {/* Session summary celebration */}
       {summary ? (

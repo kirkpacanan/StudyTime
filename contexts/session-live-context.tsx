@@ -20,6 +20,13 @@ type SessionLiveContextValue = {
   live: LiveSessionSnapshot;
   setLive: (u: Partial<LiveSessionSnapshot>) => void;
   resetLive: () => void;
+  /** Destination the user tried to navigate to while a session was running.
+   *  "__logout__" is the special token for the logout action. */
+  pendingNavDestination: string | null;
+  /** Called by Sidebar/Topbar to request navigation away from an active session. */
+  requestNavAway: (destination: string) => void;
+  /** Called by the session page once it has handled the pending destination. */
+  clearPendingNav: () => void;
 };
 
 const SessionLiveContext = createContext<SessionLiveContextValue | null>(null);
@@ -30,6 +37,7 @@ export function SessionLiveProvider({
   children: React.ReactNode;
 }) {
   const [live, setLiveState] = useState<LiveSessionSnapshot>(defaultSnap);
+  const [pendingNavDestination, setPendingNavDestination] = useState<string | null>(null);
 
   const setLive = useCallback((u: Partial<LiveSessionSnapshot>) => {
     setLiveState((prev) => ({ ...prev, ...u }));
@@ -37,9 +45,17 @@ export function SessionLiveProvider({
 
   const resetLive = useCallback(() => setLiveState(defaultSnap), []);
 
+  const requestNavAway = useCallback((destination: string) => {
+    setPendingNavDestination(destination);
+  }, []);
+
+  const clearPendingNav = useCallback(() => {
+    setPendingNavDestination(null);
+  }, []);
+
   const value = useMemo(
-    () => ({ live, setLive, resetLive }),
-    [live, setLive, resetLive],
+    () => ({ live, setLive, resetLive, pendingNavDestination, requestNavAway, clearPendingNav }),
+    [live, setLive, resetLive, pendingNavDestination, requestNavAway, clearPendingNav],
   );
 
   return (

@@ -18,6 +18,7 @@ import { LayoutGroup, motion } from "framer-motion";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
+import { useSessionLive } from "@/contexts/session-live-context";
 
 const links = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -32,6 +33,7 @@ const links = [
 export function Sidebar() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const { live, requestNavAway } = useSessionLive();
 
   return (
     <>
@@ -68,7 +70,16 @@ export function Sidebar() {
                 <Link
                   key={href}
                   href={href}
-                  onClick={() => setOpen(false)}
+                  onClick={(e) => {
+                    // If a session is actively running and the user is NOT
+                    // navigating to the session page itself, intercept and
+                    // show the exit-confirmation dialog instead.
+                    if (live.running && href !== "/session") {
+                      e.preventDefault();
+                      requestNavAway(href);
+                    }
+                    setOpen(false);
+                  }}
                   className={cn(
                     "relative block rounded-xl px-3 py-2.5 text-sm font-medium transition-colors duration-200",
                     active

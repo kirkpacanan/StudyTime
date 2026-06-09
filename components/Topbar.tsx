@@ -23,7 +23,7 @@ function stateLabel(s: FocusSampleState | null) {
 
 export function Topbar() {
   const { user, signOut } = useAuth();
-  const { live } = useSessionLive();
+  const { live, requestNavAway } = useSessionLive();
   const { studyingCount } = usePresence();
 
   return (
@@ -86,7 +86,13 @@ export function Topbar() {
           type="button"
           variant="secondary"
           className="hidden sm:inline-flex"
-          onClick={() => signOut()}
+          onClick={() => {
+            if (live.running) {
+              requestNavAway("__logout__");
+            } else {
+              void signOut();
+            }
+          }}
         >
           <LogOut className="h-4 w-4" aria-hidden />
           Log out
@@ -95,7 +101,13 @@ export function Topbar() {
           type="button"
           variant="ghost"
           className="sm:hidden"
-          onClick={() => signOut()}
+          onClick={() => {
+            if (live.running) {
+              requestNavAway("__logout__");
+            } else {
+              void signOut();
+            }
+          }}
           aria-label="Log out"
         >
           <LogOut className="h-4 w-4" />
