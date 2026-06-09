@@ -6,6 +6,7 @@ import { ProfilePanel } from "@/components/gamification/ProfilePanel";
 import {
   BarChart3,
   BookOpen,
+  GraduationCap,
   LayoutDashboard,
   Menu,
   Rss,
@@ -28,6 +29,10 @@ const links = [
   { href: "/leaderboard", label: "Leaderboard", icon: Trophy },
   { href: "/reports", label: "Reports", icon: BarChart3 },
   { href: "/settings", label: "Settings", icon: Settings },
+] as const;
+
+const extraLinks = [
+  { href: "/focus-hub", label: "Focus Hub", icon: GraduationCap },
 ] as const;
 
 export function Sidebar() {
@@ -75,6 +80,58 @@ export function Sidebar() {
                     // navigating to the session page itself, intercept and
                     // show the exit-confirmation dialog instead.
                     if (live.running && href !== "/session") {
+                      e.preventDefault();
+                      requestNavAway(href);
+                    }
+                    setOpen(false);
+                  }}
+                  className={cn(
+                    "relative block rounded-xl px-3 py-2.5 text-sm font-medium transition-colors duration-200",
+                    active
+                      ? "text-primary"
+                      : "text-muted hover:bg-white/40 hover:text-text dark:hover:bg-white/[0.06]",
+                  )}
+                >
+                  {active ? (
+                    <motion.span
+                      layoutId="sidebar-active-pill"
+                      className="absolute inset-0 -z-0 rounded-xl border border-primary/15 bg-primary-soft/90 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.45)] backdrop-blur-md dark:border-primary/25 dark:bg-primary/15 dark:shadow-[inset_0_1px_0_0_rgba(255,255,255,0.08)]"
+                      transition={{
+                        type: "spring",
+                        stiffness: 420,
+                        damping: 34,
+                      }}
+                    />
+                  ) : null}
+                  <span className="relative z-10 flex items-center gap-3">
+                    <Icon className="h-4 w-4 shrink-0" aria-hidden />
+                    {label}
+                  </span>
+                </Link>
+              );
+            })}
+
+            {/* ── Additional Features ── */}
+            <div className="px-1 py-2">
+              <div className="flex items-center gap-2">
+                <div className="h-px flex-1 bg-[var(--cc-border)]" />
+                <span className="text-[10px] font-semibold uppercase tracking-widest text-muted/60">
+                  Additional
+                </span>
+                <div className="h-px flex-1 bg-[var(--cc-border)]" />
+              </div>
+            </div>
+
+            {extraLinks.map(({ href, label, icon: Icon }) => {
+              const active =
+                pathname === href || pathname.startsWith(`${href}/`);
+              const hrefStr: string = href;
+              return (
+                <Link
+                  key={href}
+                  href={href}
+                  onClick={(e) => {
+                    if (live.running && hrefStr !== "/session") {
                       e.preventDefault();
                       requestNavAway(href);
                     }
