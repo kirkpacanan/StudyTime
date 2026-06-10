@@ -57,7 +57,7 @@ function label(n: AppNotification): {
         actor,
         text: "sent you a study buddy request",
         icon: Heart,
-        href: "/leaderboard",
+        href: "/friends?tab=buddy",
       };
     case "buddy_request_accepted":
       return {
@@ -74,28 +74,28 @@ function label(n: AppNotification): {
         actor,
         text: "declined your study buddy request",
         icon: X,
-        href: "/leaderboard",
+        href: "/friends?tab=buddy",
       };
     case "buddy_request_canceled":
       return {
         actor,
         text: "canceled their study buddy request",
         icon: X,
-        href: "/leaderboard",
+        href: "/friends?tab=buddy",
       };
     case "buddy_removed":
       return {
         actor,
         text: "removed you as a study buddy",
         icon: Users,
-        href: "/leaderboard",
+        href: "/friends?tab=buddy",
       };
     case "buddy_paired":
       return {
         actor,
         text: "paired with you as a study buddy",
         icon: Users,
-        href: "/leaderboard",
+        href: "/friends?tab=buddy",
       };
     case "buddy_studied":
       return {

@@ -12,11 +12,17 @@ import {
 import { listFriends } from "@/lib/social/friends-service";
 import { getMyProfile } from "@/lib/social/profile-service";
 import { isSupabaseEnabled } from "@/lib/supabase/config";
+import { cn } from "@/lib/cn";
 import { profileHref, type Friend } from "@/lib/social/types";
 import { timeAgo } from "@/lib/social/format";
 import { Check, Clock, Copy, Heart, UserPlus, Users, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+
+type BuddyCardProps = {
+  variant?: "card" | "panel";
+  onFindFriends?: () => void;
+};
 
 function StatusPill({
   label,
@@ -42,7 +48,10 @@ function StatusPill({
   );
 }
 
-export function BuddyCard() {
+export function BuddyCard({
+  variant = "card",
+  onFindFriends,
+}: BuddyCardProps = {}) {
   const { user } = useAuth();
   const { snapshot, pair, respondBuddyRequest, cancelBuddyRequest, unpair } =
     useProgression();
@@ -63,7 +72,9 @@ export function BuddyCard() {
 
   if (!snapshot || !user) {
     return (
-      <Card className="h-full animate-pulse p-5">
+      <Card
+        className={cn("animate-pulse p-5", variant === "card" && "h-full")}
+      >
         <div className="h-20" />
       </Card>
     );
@@ -135,7 +146,12 @@ export function BuddyCard() {
 
   return (
     <>
-      <Card className="h-full border-emerald-400/20 p-5">
+      <Card
+        className={cn(
+          "border-emerald-400/20 p-5",
+          variant === "card" && "h-full",
+        )}
+      >
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-sm font-semibold text-text">
             <Heart className="h-5 w-5 text-emerald-500" />
@@ -311,9 +327,19 @@ export function BuddyCard() {
             ) : isSupabaseEnabled() ? (
               <p className="rounded-lg border border-white/45 bg-white/20 px-3 py-2 text-[11px] text-muted dark:border-white/10 dark:bg-white/[0.04]">
                 Add friends first.{" "}
-                <Link href="/friends" className="font-semibold text-primary">
-                  Find study partners
-                </Link>{" "}
+                {onFindFriends ? (
+                  <button
+                    type="button"
+                    onClick={onFindFriends}
+                    className="font-semibold text-primary hover:underline"
+                  >
+                    Find study partners
+                  </button>
+                ) : (
+                  <Link href="/friends" className="font-semibold text-primary">
+                    Find study partners
+                  </Link>
+                )}{" "}
                 — buddies must be friends.
               </p>
             ) : null}

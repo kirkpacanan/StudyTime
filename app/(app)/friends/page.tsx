@@ -2,8 +2,10 @@
 
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { BuddyCard } from "@/components/gamification/BuddyCard";
 import { ActivityFeedPanel } from "@/components/social/ActivityFeedPanel";
 import { UserAvatar } from "@/components/social/UserAvatar";
+import { useProgression } from "@/contexts/progression-context";
 import { SearchModal } from "@/components/social/SearchModal";
 import { UnfriendConfirmModal, type UnfriendTarget } from "@/components/social/UnfriendConfirmModal";
 import { usePresence } from "@/contexts/presence-context";
@@ -23,10 +25,16 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-type Tab = "activity" | "friends" | "requests";
+type Tab = "activity" | "friends" | "requests" | "buddy";
 
 function parseTab(param: string | null): Tab {
-  if (param === "activity" || param === "requests") return param;
+  if (
+    param === "activity" ||
+    param === "requests" ||
+    param === "buddy"
+  ) {
+    return param;
+  }
   return "friends";
 }
 
@@ -35,6 +43,8 @@ export default function FriendsPage() {
   const searchParams = useSearchParams();
   const tab = parseTab(searchParams.get("tab"));
   const { friends: livePresence } = usePresence();
+  const { snapshot } = useProgression();
+  const buddyPendingIn = snapshot?.buddy?.status === "pending_in";
 
   const setTab = useCallback(
     (next: Tab) => {
@@ -224,10 +234,18 @@ export default function FriendsPage() {
         <TabButton active={tab === "requests"} onClick={() => setTab("requests")}>
           Requests {inbox.length > 0 ? `(${inbox.length})` : ""}
         </TabButton>
+        <TabButton active={tab === "buddy"} onClick={() => setTab("buddy")}>
+          Buddy {buddyPendingIn ? "(1)" : ""}
+        </TabButton>
       </div>
 
       {tab === "activity" ? (
         <ActivityFeedPanel onFindPeople={() => setSearchOpen(true)} />
+      ) : tab === "buddy" ? (
+        <BuddyCard
+          variant="panel"
+          onFindFriends={() => setSearchOpen(true)}
+        />
       ) : loading ? (
         <Card className="h-32 animate-pulse" />
       ) : tab === "friends" ? (
