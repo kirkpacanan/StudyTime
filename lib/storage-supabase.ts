@@ -15,6 +15,7 @@ type SessionRow = {
   distraction_events: number;
   samples: StudySession["samples"];
   events: StudySession["events"] | null;
+  room_id: string | null;
 };
 
 function mapRow(row: SessionRow): StudySession {
@@ -30,6 +31,7 @@ function mapRow(row: SessionRow): StudySession {
     distractionEvents: row.distraction_events,
     samples: row.samples ?? [],
     events: row.events ?? undefined,
+    roomId: row.room_id ?? null,
   };
 }
 
@@ -60,6 +62,7 @@ export async function insertStudySession(session: StudySession): Promise<void> {
     distraction_events: session.distractionEvents,
     samples: session.samples,
     events: session.events ?? null,
+    room_id: session.roomId ?? null,
   });
   if (error) throw error;
 }

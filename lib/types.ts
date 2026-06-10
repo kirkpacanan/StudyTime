@@ -51,6 +51,8 @@ export type StudySession = {
   samples: FocusSample[];
   /** Optional discrete events (new schema; old sessions won't have it) */
   events?: SessionEvent[];
+  /** Private library room when session was completed in a study room */
+  roomId?: string | null;
 };
 
 export type FocusSensitivity = "strict" | "balanced" | "accessible";

@@ -3,9 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
 import { isSupabaseEnabled } from "@/lib/supabase/config";
+import { getLibraryRoomPresence } from "@/lib/library-rooms";
 import type { PresenceStatus } from "@/lib/social/types";
 
 export type LibraryFlowState =
+  | "library_select"
   | "entering"
   | "seat_select"
   | "duration_select"
@@ -33,10 +35,15 @@ type BroadcastPayload = {
   focusPhase: string | null;
   focusScore: number;
   sessionDurationMs: number;
+  roomId: string;
 };
 
-const CHANNEL_NAME = "studytime-library-room";
 const HEARTBEAT_MS = 15_000;
+
+/** Realtime channel name for a library room (`main` = public Main Library). */
+export function libraryPresenceChannelName(roomId: string = "main"): string {
+  return `studytime-library-${roomId}`;
+}
 
 /**
  * Manages real-time seat occupancy and peer presence for the 3D library.
@@ -54,6 +61,7 @@ export function useLibraryPresence(opts: {
   sessionDurationMs: number;
   roomId?: string;
 }) {
+  const roomId = opts.roomId ?? "main";
   const [peers, setPeers] = useState<Map<string, LibraryPeer>>(new Map());
   const channelRef = useRef<ReturnType<ReturnType<typeof getSupabaseBrowser>["channel"]> | null>(null);
   const optsRef = useRef(opts);
@@ -83,6 +91,7 @@ export function useLibraryPresence(opts: {
       focusPhase: optsRef.current.focusPhase,
       focusScore: score,
       sessionDurationMs: optsRef.current.sessionDurationMs,
+      roomId: optsRef.current.roomId ?? "main",
     };
     void channelRef.current.send({
       type: "broadcast",
@@ -96,7 +105,8 @@ export function useLibraryPresence(opts: {
 
     const supabase = getSupabaseBrowser();
 
-    const channel = supabase.channel(CHANNEL_NAME, {
+    const channelName = libraryPresenceChannelName(roomId);
+    const channel = supabase.channel(channelName, {
       config: { broadcast: { self: false } },
     });
 
@@ -105,6 +115,7 @@ export function useLibraryPresence(opts: {
     channel
       .on("broadcast", { event: "peer_update" }, ({ payload }: { payload: BroadcastPayload }) => {
         if (!payload?.userId) return;
+        if (payload.roomId && payload.roomId !== roomId) return;
         setPeers((prev) => {
           const next = new Map(prev);
           next.set(payload.userId, {
@@ -132,6 +143,27 @@ export function useLibraryPresence(opts: {
       .subscribe((status) => {
         if (status === "SUBSCRIBED") {
           broadcastSelf(true);
+          void getLibraryRoomPresence(roomId).then((rows) => {
+            if (rows.length === 0) return;
+            setPeers((prev) => {
+              const next = new Map(prev);
+              for (const row of rows) {
+                if (!row.user_id || row.user_id === opts.userId) continue;
+                next.set(row.user_id, {
+                  userId: row.user_id,
+                  displayName: "Student",
+                  avatarUrl: row.avatar_url ?? null,
+                  seatId: row.seat_id ?? null,
+                  status: (row.status as PresenceStatus) ?? "online",
+                  focusPhase: row.focus_phase ?? null,
+                  focusScore: 0,
+                  sessionDurationMs: 0,
+                  lastSeenAt: row.last_seen_at ?? new Date().toISOString(),
+                });
+              }
+              return next;
+            });
+          });
         }
       });
 
@@ -165,9 +197,10 @@ export function useLibraryPresence(opts: {
       }
       void supabase.removeChannel(channel);
       channelRef.current = null;
+      setPeers(new Map());
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [opts.userId]);
+  }, [opts.userId, roomId]);
 
   // Broadcast whenever key state changes.
   useEffect(() => {

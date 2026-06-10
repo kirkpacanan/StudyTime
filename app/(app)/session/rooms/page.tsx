@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
-export default function FocusHubRedirectPage() {
+export default function StudyRoomsRedirectPage() {
   const router = useRouter();
   useEffect(() => {
     router.replace("/session");

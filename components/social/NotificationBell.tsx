@@ -102,17 +102,22 @@ function label(n: AppNotification): {
         actor,
         text: "studied today — your +20% XP bonus is active",
         icon: Check,
-        href: "/feed",
+        href: "/friends?tab=activity",
       };
     case "achievement_unlocked":
       return {
         actor,
         text: "unlocked an achievement",
         icon: Award,
-        href: "/feed",
+        href: "/friends?tab=activity",
       };
     default:
-      return { actor: "StudyTime", text: "New activity", icon: Bell, href: "/feed" };
+      return {
+        actor: "StudyTime",
+        text: "New activity",
+        icon: Bell,
+        href: "/friends?tab=activity",
+      };
   }
 }
 

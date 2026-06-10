@@ -56,6 +56,7 @@ export async function persistStudySession(
   focusMs: number,
   breakMs: number,
   focusThreshold: number,
+  roomId?: string | null,
 ) {
   const stats = computeSessionStats(samples, focusThreshold, focusMs, breakMs);
   const session = {
@@ -70,6 +71,7 @@ export async function persistStudySession(
     distractionEvents: stats.distractionEvents,
     samples,
     events,
+    roomId: roomId ?? null,
   };
   await appendSession(session);
   return session;

@@ -2,6 +2,7 @@
 
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { ActivityFeedPanel } from "@/components/social/ActivityFeedPanel";
 import { UserAvatar } from "@/components/social/UserAvatar";
 import { SearchModal } from "@/components/social/SearchModal";
 import { UnfriendConfirmModal, type UnfriendTarget } from "@/components/social/UnfriendConfirmModal";
@@ -19,13 +20,29 @@ import { profileHref, type Friend, type FriendRequest } from "@/lib/social/types
 import { cn } from "@/lib/cn";
 import { Check, Flame, Search, UserMinus, UserPlus, Users, X } from "lucide-react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-type Tab = "friends" | "requests";
+type Tab = "activity" | "friends" | "requests";
+
+function parseTab(param: string | null): Tab {
+  if (param === "activity" || param === "requests") return param;
+  return "friends";
+}
 
 export default function FriendsPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const tab = parseTab(searchParams.get("tab"));
   const { friends: livePresence } = usePresence();
-  const [tab, setTab] = useState<Tab>("friends");
+
+  const setTab = useCallback(
+    (next: Tab) => {
+      const href = next === "friends" ? "/friends" : `/friends?tab=${next}`;
+      router.replace(href, { scroll: false });
+    },
+    [router],
+  );
   const [friends, setFriends] = useState<Friend[]>([]);
   const [inbox, setInbox] = useState<FriendRequest[]>([]);
   const [outbox, setOutbox] = useState<FriendRequest[]>([]);
@@ -162,8 +179,8 @@ export default function FriendsPage() {
       <div className="space-y-6">
         <Header onSearch={() => setSearchOpen(true)} />
         <Card className="text-center text-sm text-muted">
-          Friends require a cloud account. Configure Supabase to connect with
-          other students.
+          Social features require a cloud account. Configure Supabase to connect
+          with other students.
         </Card>
       </div>
     );
@@ -198,6 +215,9 @@ export default function FriendsPage() {
       ) : null}
 
       <div className="flex gap-1 rounded-xl border border-white/45 bg-white/30 p-1 dark:border-white/10 dark:bg-white/[0.05]">
+        <TabButton active={tab === "activity"} onClick={() => setTab("activity")}>
+          Activity
+        </TabButton>
         <TabButton active={tab === "friends"} onClick={() => setTab("friends")}>
           Friends ({friends.length})
         </TabButton>
@@ -206,7 +226,9 @@ export default function FriendsPage() {
         </TabButton>
       </div>
 
-      {loading ? (
+      {tab === "activity" ? (
+        <ActivityFeedPanel onFindPeople={() => setSearchOpen(true)} />
+      ) : loading ? (
         <Card className="h-32 animate-pulse" />
       ) : tab === "friends" ? (
         friendsWithPresence.length === 0 ? (
@@ -307,7 +329,7 @@ function Header({
   return (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-text">Friends</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-text">Social</h1>
         <p className="mt-1 text-sm text-muted">
           {studyingCount > 0
             ? `${studyingCount} ${studyingCount === 1 ? "friend is" : "friends are"} studying right now.`
