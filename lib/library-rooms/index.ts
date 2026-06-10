@@ -28,6 +28,7 @@ export {
   archiveRoom as archiveLibraryRoom,
   getRoomMembers as getLibraryRoomMembers,
   removeParticipant as removeLibraryRoomParticipant,
+  leaveRoom as leaveLibraryRoom,
 } from "@/lib/focus-hub/client";
 
 export async function getLibraryRoomAnalytics(

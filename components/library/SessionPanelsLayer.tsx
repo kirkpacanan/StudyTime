@@ -33,6 +33,7 @@ type SessionPanelsLayerProps = {
   onPause: () => void;
   onResume: () => void;
   onEnd: () => void;
+  endDisabled?: boolean;
   sample: FocusFrameResult;
   flags: LiveFocusFlags;
   eyesClosedMs: number;
@@ -111,6 +112,7 @@ export const SessionPanelsLayer = memo(function SessionPanelsLayer(props: Sessio
           onPause={props.onPause}
           onResume={props.onResume}
           onEnd={props.onEnd}
+          endDisabled={props.endDisabled}
         />
       </div>
     </>

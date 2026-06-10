@@ -52,6 +52,8 @@ type Phase = "focus" | "break";
 
 type SessionEndSummary = {
   saved: boolean;
+  celebrationPending: boolean;
+  saveError: string | null;
   startedAt: string;
   endedAt: string;
   focusMs: number;
@@ -268,6 +270,8 @@ export function StudySessionView({
 
   const [summary, setSummary] = useState<SessionEndSummary | null>(null);
   const [summaryOpen, setSummaryOpen] = useState(false);
+  const [endingSession, setEndingSession] = useState(false);
+  const endingSessionRef = useRef(false);
   const panelsLayerRef = useRef<HTMLDivElement>(null);
 
   // Exit-confirmation dialog (shown when Sidebar/Topbar intercepts navigation)
@@ -388,48 +392,95 @@ export function StudySessionView({
   completeCurrentPhaseRef.current = completeCurrentPhase;
 
   const endSession = useCallback(async () => {
+    if (endingSessionRef.current) return;
+    endingSessionRef.current = true;
+    setEndingSession(true);
+
     alarmRef.current?.stop();
     const started = sessionStartedAtRef.current;
     const samples = [...samplesRef.current];
+    const events = [...eventsRef.current];
     const focusMs = focusMsRef.current;
     const breakMs = breakMsRef.current;
     const blocks = focusCompletedRef.current;
     const endedAt = new Date().toISOString();
     const stats = computeSessionStats(samples, focusThreshold, focusMs, breakMs);
-    let saved = false;
-    let celebration: SessionCelebrationPayload | null = null;
-    if (user && started && samples.length > 0) {
-      const session = await persistStudySession(
-        user.id,
-        started,
-        samples,
-        [...eventsRef.current],
-        focusMs,
-        breakMs,
-        focusThreshold,
-        libraryRoomId ?? null,
-      );
-      saved = true;
-      try { celebration = await computeSessionCelebration(user, session); } catch { celebration = null; }
-    }
+    const shouldPersist = Boolean(user && started && samples.length > 0);
+
     setRunning(false);
     setPaused(false);
     resetLive();
     if (typeof document !== "undefined") document.title = "StudyTime";
     sessionStartedAtRef.current = null;
-    samplesRef.current = []; eventsRef.current = [];
-    focusMsRef.current = 0; breakMsRef.current = 0; sessionMsRef.current = 0;
+    samplesRef.current = [];
+    eventsRef.current = [];
+    focusMsRef.current = 0;
+    breakMsRef.current = 0;
+    sessionMsRef.current = 0;
     setFocusCompleted(0);
-    phaseRef.current = "focus"; setPhase("focus"); setRemainingSec(0);
+    phaseRef.current = "focus";
+    setPhase("focus");
+    setRemainingSec(0);
     setFlowState("session_end");
     setSummary({
-      saved, startedAt: started ?? endedAt, endedAt, focusMs, breakMs,
-      pomodoroBlocks: blocks, sampleCount: samples.length,
-      averageFocus: stats.averageFocus, focusedRatio: stats.focusedRatio,
-      distractionEvents: stats.distractionEvents, celebration,
+      saved: false,
+      celebrationPending: shouldPersist,
+      saveError: null,
+      startedAt: started ?? endedAt,
+      endedAt,
+      focusMs,
+      breakMs,
+      pomodoroBlocks: blocks,
+      sampleCount: samples.length,
+      averageFocus: stats.averageFocus,
+      focusedRatio: stats.focusedRatio,
+      distractionEvents: stats.distractionEvents,
+      celebration: null,
     });
     setSummaryOpen(true);
-    if (saved) void refreshProgression();
+    setEndingSession(false);
+    endingSessionRef.current = false;
+
+    if (!shouldPersist || !user || !started) return;
+
+    const userSnapshot = user;
+    const startedSnapshot = started;
+    void (async () => {
+      try {
+        const session = await persistStudySession(
+          userSnapshot.id,
+          startedSnapshot,
+          samples,
+          events,
+          focusMs,
+          breakMs,
+          focusThreshold,
+          libraryRoomId ?? null,
+        );
+        setSummary((prev) => (prev ? { ...prev, saved: true } : prev));
+        let celebration: SessionCelebrationPayload | null = null;
+        try {
+          celebration = await computeSessionCelebration(userSnapshot, session);
+        } catch {
+          celebration = null;
+        }
+        setSummary((prev) =>
+          prev ? { ...prev, celebration, celebrationPending: false } : prev,
+        );
+        void refreshProgression();
+      } catch (err) {
+        setSummary((prev) =>
+          prev
+            ? {
+                ...prev,
+                celebrationPending: false,
+                saveError:
+                  err instanceof Error ? err.message : "Could not save session",
+              }
+            : prev,
+        );
+      }
+    })();
   }, [focusThreshold, libraryRoomId, resetLive, user, refreshProgression]);
 
   // ── Exit-guard: watch for navigation requests from Sidebar / Topbar ─────────
@@ -965,6 +1016,7 @@ export function StudySessionView({
             onPause={() => setPaused(true)}
             onResume={() => setPaused(false)}
             onEnd={() => void endSession()}
+            endDisabled={endingSession}
             sample={lastSample}
             flags={liveFocusFlags}
             eyesClosedMs={eyesClosedMs}

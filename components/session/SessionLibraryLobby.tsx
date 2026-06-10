@@ -1,13 +1,22 @@
 "use client";
 
 import { CreateLibraryRoomSheet } from "@/components/library-rooms/CreateLibraryRoomSheet";
+import {
+  LibraryRoomConfirmModal,
+  type LibraryRoomAction,
+} from "@/components/library-rooms/LibraryRoomConfirmModal";
 import { LibraryRoomCard } from "@/components/library-rooms/LibraryRoomCard";
-import { getMyLibraryRooms, joinLibraryRoom } from "@/lib/library-rooms";
+import {
+  archiveLibraryRoom,
+  getMyLibraryRooms,
+  joinLibraryRoom,
+  leaveLibraryRoom,
+} from "@/lib/library-rooms";
 import type { LibraryRoom, LibraryRoomWithRole } from "@/lib/library-rooms";
 import { motion } from "framer-motion";
 import { BookOpen, ChevronRight, Globe, Hash, Plus, Users } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 type SessionLibraryLobbyProps = {
   onSelectMain: () => void;
@@ -21,13 +30,21 @@ export function SessionLibraryLobby({ onSelectMain }: SessionLibraryLobbyProps) 
   const [joinCode, setJoinCode] = useState("");
   const [joinLoading, setJoinLoading] = useState(false);
   const [joinErr, setJoinErr] = useState<string | null>(null);
+  const [roomAction, setRoomAction] = useState<LibraryRoomAction | null>(null);
+  const [roomTarget, setRoomTarget] = useState<LibraryRoomWithRole | null>(null);
+  const [roomActionBusy, setRoomActionBusy] = useState(false);
+  const [roomActionErr, setRoomActionErr] = useState<string | null>(null);
+  const [roomActionSuccess, setRoomActionSuccess] = useState<string | null>(null);
+
+  const refreshRooms = useCallback(async () => {
+    const r = await getMyLibraryRooms();
+    setRooms(r);
+    setLoading(false);
+  }, []);
 
   useEffect(() => {
-    void getMyLibraryRooms().then((r) => {
-      setRooms(r);
-      setLoading(false);
-    });
-  }, []);
+    void refreshRooms();
+  }, [refreshRooms]);
 
   function handleRoomCreated(room: LibraryRoom) {
     router.push(`/session/room/${room.id}`);
@@ -44,6 +61,43 @@ export function SessionLibraryLobby({ onSelectMain }: SessionLibraryLobbyProps) 
     } catch (err) {
       setJoinErr(err instanceof Error ? err.message : "Invalid room code.");
       setJoinLoading(false);
+    }
+  }
+
+  function openRoomAction(action: LibraryRoomAction, room: LibraryRoomWithRole) {
+    setRoomActionErr(null);
+    setRoomAction(action);
+    setRoomTarget(room);
+  }
+
+  function closeRoomAction() {
+    if (roomActionBusy) return;
+    setRoomAction(null);
+    setRoomTarget(null);
+    setRoomActionErr(null);
+  }
+
+  async function confirmRoomAction() {
+    if (!roomTarget || !roomAction) return;
+    setRoomActionBusy(true);
+    setRoomActionErr(null);
+    try {
+      if (roomAction === "delete") {
+        await archiveLibraryRoom(roomTarget.id);
+        setRoomActionSuccess(`${roomTarget.name} was deleted.`);
+      } else {
+        await leaveLibraryRoom(roomTarget.id);
+        setRoomActionSuccess(`You left ${roomTarget.name}.`);
+      }
+      setRoomAction(null);
+      setRoomTarget(null);
+      setRoomActionErr(null);
+      await refreshRooms();
+      window.setTimeout(() => setRoomActionSuccess(null), 4000);
+    } catch (err) {
+      setRoomActionErr(err instanceof Error ? err.message : "Something went wrong.");
+    } finally {
+      setRoomActionBusy(false);
     }
   }
 
@@ -126,6 +180,15 @@ export function SessionLibraryLobby({ onSelectMain }: SessionLibraryLobbyProps) 
           <p className="-mt-3 mb-4 text-center text-xs text-red-400">{joinErr}</p>
         )}
 
+        {roomActionSuccess ? (
+          <p
+            className="mb-4 rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-3 py-2 text-center text-xs text-emerald-300"
+            role="status"
+          >
+            {roomActionSuccess}
+          </p>
+        ) : null}
+
         <div className="mb-3 flex items-center gap-2">
           <Users className="h-4 w-4 text-slate-500" />
           <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
@@ -153,6 +216,8 @@ export function SessionLibraryLobby({ onSelectMain }: SessionLibraryLobbyProps) 
                 key={room.id}
                 room={room}
                 onSelect={(id) => router.push(`/session/room/${id}`)}
+                onDelete={(r) => openRoomAction("delete", r)}
+                onLeave={(r) => openRoomAction("leave", r)}
                 variant="lobby"
               />
             ))}
@@ -164,6 +229,16 @@ export function SessionLibraryLobby({ onSelectMain }: SessionLibraryLobbyProps) 
         open={createOpen}
         onClose={() => setCreateOpen(false)}
         onCreated={handleRoomCreated}
+      />
+
+      <LibraryRoomConfirmModal
+        open={roomAction != null && roomTarget != null}
+        action={roomAction}
+        room={roomTarget}
+        busy={roomActionBusy}
+        error={roomActionErr}
+        onConfirm={() => void confirmRoomAction()}
+        onCancel={closeRoomAction}
       />
     </motion.div>
   );

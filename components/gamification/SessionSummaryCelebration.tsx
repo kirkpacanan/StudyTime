@@ -42,6 +42,8 @@ type SummaryBase = {
   focusedRatio: number;
   distractionEvents: number;
   saved: boolean;
+  celebrationPending?: boolean;
+  saveError?: string | null;
 };
 
 function fmtDuration(ms: number): string {
@@ -82,6 +84,7 @@ export function SessionSummaryCelebration({
   const router = useRouter();
   const [shareBusy, setShareBusy] = useState(false);
   const showParty = Boolean(celebration);
+  const saving = Boolean(summary.celebrationPending);
   const reduce = useReducedMotion();
 
   useEffect(() => {
@@ -222,6 +225,22 @@ export function SessionSummaryCelebration({
               </div>
 
               <div className="relative z-[1] min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5 sm:px-6">
+                {summary.saveError ? (
+                  <p
+                    className="mb-4 rounded-xl border border-alert/30 bg-alert/10 px-3 py-2 text-sm text-alert"
+                    role="alert"
+                  >
+                    {summary.saveError}
+                  </p>
+                ) : null}
+
+                {saving ? (
+                  <div className="mb-4 flex items-center justify-center gap-2 rounded-xl border border-[var(--cc-border)] bg-white/5 px-4 py-3 text-sm text-muted">
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+                    Saving session…
+                  </div>
+                ) : null}
+
                 {showParty ? (
                   <motion.div
                     initial={reduce ? false : { opacity: 0, y: 8 }}

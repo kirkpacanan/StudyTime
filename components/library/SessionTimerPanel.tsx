@@ -17,6 +17,7 @@ type SessionTimerPanelProps = {
   onPause: () => void;
   onResume: () => void;
   onEnd: () => void;
+  endDisabled?: boolean;
 };
 
 const PANEL_W_MIN = 84;
@@ -37,6 +38,7 @@ export function SessionTimerPanel({
   onPause,
   onResume,
   onEnd,
+  endDisabled = false,
 }: SessionTimerPanelProps) {
   const [minimized, setMinimized] = useState(false);
 
@@ -191,7 +193,8 @@ export function SessionTimerPanel({
             </button>
             <button
               onClick={onEnd}
-              className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-500/10 text-red-200 ring-1 ring-red-500/25 transition-all hover:bg-red-500/18"
+              disabled={endDisabled}
+              className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-500/10 text-red-200 ring-1 ring-red-500/25 transition-all hover:bg-red-500/18 disabled:opacity-50"
               aria-label="End session"
             >
               <Square className="h-3.5 w-3.5" />

@@ -35,7 +35,7 @@ export async function getMyRooms(): Promise<RoomWithRole[]> {
 
   const byRoom = new Map<string, RoomWithRole>();
   for (const row of rows) {
-    if (!row.room?.id) continue;
+    if (!row.room?.id || row.room.archived_at) continue;
     const existing = byRoom.get(row.room.id);
     if (!existing || (row.role === "host" && existing.role !== "host")) {
       byRoom.set(row.room.id, {
@@ -144,6 +144,15 @@ export async function removeParticipant(roomId: string, userId: string): Promise
     .eq("room_id", roomId)
     .eq("user_id", userId);
   if (error) throw new Error(error.message);
+}
+
+export async function leaveRoom(roomId: string): Promise<void> {
+  const sb = getSupabaseBrowser();
+  const {
+    data: { user },
+  } = await sb.auth.getUser();
+  if (!user) throw new Error("Not signed in");
+  await removeParticipant(roomId, user.id);
 }
 
 // ── Activities ────────────────────────────────────────────────────────────────

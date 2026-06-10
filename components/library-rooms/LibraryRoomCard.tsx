@@ -3,13 +3,15 @@
 import { cn } from "@/lib/cn";
 import type { LibraryRoomWithRole } from "@/lib/library-rooms";
 import { motion } from "framer-motion";
-import { BookOpen, Check, Copy, Lock, Users } from "lucide-react";
+import { BookOpen, Check, Copy, Lock, LogOut, Trash2, Users } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
 type LibraryRoomCardProps = {
   room: LibraryRoomWithRole;
   onSelect?: (roomId: string) => void;
+  onDelete?: (room: LibraryRoomWithRole) => void;
+  onLeave?: (room: LibraryRoomWithRole) => void;
   variant?: "default" | "lobby";
 };
 
@@ -24,11 +26,15 @@ function RoomCardContent({
   room,
   copied,
   onCopyCode,
+  onDelete,
+  onLeave,
   variant,
 }: {
   room: LibraryRoomWithRole;
   copied: boolean;
   onCopyCode: (e: React.MouseEvent) => void;
+  onDelete?: (room: LibraryRoomWithRole) => void;
+  onLeave?: (room: LibraryRoomWithRole) => void;
   variant: "default" | "lobby";
 }) {
   const categoryStyle =
@@ -59,7 +65,35 @@ function RoomCardContent({
             <BookOpen className="h-5 w-5 text-primary" />
           )}
         </div>
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
+          {room.role === "host" && onDelete ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onDelete(room);
+              }}
+              className="rounded-lg p-1.5 text-muted transition hover:bg-alert/10 hover:text-alert"
+              aria-label={`Delete ${room.name}`}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          ) : null}
+          {room.role === "participant" && onLeave ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onLeave(room);
+              }}
+              className="rounded-lg p-1.5 text-muted transition hover:bg-white/10 hover:text-text"
+              aria-label={`Leave ${room.name}`}
+            >
+              <LogOut className="h-3.5 w-3.5" />
+            </button>
+          ) : null}
           {room.is_private && (
             <span className="inline-flex items-center gap-1 rounded-full border border-slate-400/20 bg-slate-400/10 px-2 py-0.5 text-[10px] font-medium text-muted">
               <Lock className="h-2.5 w-2.5" />
@@ -128,6 +162,8 @@ function RoomCardContent({
 export function LibraryRoomCard({
   room,
   onSelect,
+  onDelete,
+  onLeave,
   variant = "default",
 }: LibraryRoomCardProps) {
   const [copied, setCopied] = useState(false);
@@ -146,6 +182,8 @@ export function LibraryRoomCard({
       room={room}
       copied={copied}
       onCopyCode={handleCopyCode}
+      onDelete={onDelete}
+      onLeave={onLeave}
       variant={variant}
     />
   );
