@@ -4,6 +4,8 @@ import type { FocusSampleState } from "@/lib/types";
 
 export type RoomRole = "host" | "participant";
 
+export type RoomType = "public_study" | "activity";
+
 export type ActivityType =
   | "study_session"
   | "assignment"
@@ -32,6 +34,7 @@ export type FocusHubRoom = {
   join_code: string;
   participant_limit: number;
   is_private: boolean;
+  room_type: RoomType;
   archived_at: string | null;
   created_at: string;
 };
@@ -58,6 +61,8 @@ export type FocusHubActivity = {
   status: ActivityStatus;
   started_at: string | null;
   ended_at: string | null;
+  scheduled_start_at: string | null;
+  scheduled_end_at: string | null;
   created_at: string;
 };
 
@@ -137,7 +142,25 @@ export type CreateRoomInput = {
   description?: string;
   category?: string;
   participant_limit?: number;
-  is_private?: boolean;
+  /** Defaults to activity (invite + code only, host analytics). */
+  room_type?: RoomType;
+  /** Emails to invite after the room is created (activity rooms only). */
+  invite_emails?: string[];
+};
+
+export type RoomEmailInvite = {
+  id: string;
+  email: string;
+  status: "pending" | "accepted" | "revoked";
+  created_at: string;
+  accepted_at: string | null;
+};
+
+export type PendingActivityRoomInvite = {
+  room_id: string;
+  room_name: string;
+  invite_id: string;
+  invited_at: string;
 };
 
 export type CreateActivityInput = {
@@ -149,6 +172,14 @@ export type CreateActivityInput = {
   due_at?: string;
   duration_minutes?: number;
   focus_required?: boolean;
+  scheduled_start_at?: string;
+  scheduled_end_at?: string;
+};
+
+export type UpdateActivityInput = {
+  title?: string;
+  scheduled_start_at?: string | null;
+  scheduled_end_at?: string | null;
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

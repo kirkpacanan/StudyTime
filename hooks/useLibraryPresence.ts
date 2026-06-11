@@ -9,7 +9,9 @@ import type { PresenceStatus } from "@/lib/social/types";
 export type LibraryFlowState =
   | "library_select"
   | "entering"
+  | "waiting_for_host"
   | "seat_select"
+  | "ready_to_start"
   | "duration_select"
   | "studying"
   | "session_end";

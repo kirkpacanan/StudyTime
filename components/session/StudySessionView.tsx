@@ -19,16 +19,24 @@ import {
   saveSessionTimerSettings,
 } from "@/lib/storage";
 import type {
+  EvidenceEventType,
   FocusSample,
-  MonitoringSnapshotEventType,
   SessionEvent,
   SessionTimerSettings,
   UserPreferences,
 } from "@/lib/types";
+import { uploadEvidenceRecord } from "@/lib/room-monitoring";
 import {
-  uploadMonitoringSnapshots,
-  type PendingMonitoringSnapshot,
-} from "@/lib/room-monitoring";
+  capturePairedEvidence,
+  hasScreenCapturePermission,
+  requestScreenCapture,
+  stopScreenCapture,
+} from "@/lib/monitoring/evidence-capture";
+import { beginStudySession } from "@/lib/storage";
+import { getActiveSeats } from "@/lib/library/seats";
+import { useRoomActivity } from "@/hooks/useRoomActivity";
+import { useWindowFocusMonitoring } from "@/hooks/useWindowFocusMonitoring";
+import { ActivityHostPanel } from "@/components/library-rooms/ActivityHostPanel";
 import { DEFAULT_SESSION_TIMER_SETTINGS } from "@/lib/types";
 import { SessionTimerConfig } from "@/components/session/SessionTimerConfig";
 import { cn } from "@/lib/cn";
@@ -58,6 +66,7 @@ import { getSeatById } from "@/lib/library/seats";
 import type { PresenceStatus } from "@/lib/social/types";
 import { useSessionImmersive } from "@/hooks/useSessionImmersive";
 import { SessionLibraryLobby } from "@/components/session/SessionLibraryLobby";
+import { ActivityRoomInvitePanel } from "@/components/library-rooms/ActivityRoomInvitePanel";
 
 const LibraryScene = dynamic(
   () => import("@/components/library/LibraryScene").then((m) => ({ default: m.LibraryScene })),
@@ -206,6 +215,10 @@ export type StudySessionPageProps = {
   joinCode?: string;
   /** Participant agreed to host monitoring snapshots in this room. */
   monitoringConsented?: boolean;
+  /** Participant granted screen capture (activity rooms). */
+  screenCaptureGranted?: boolean;
+  /** Activity room — invite/code only, host analytics & snapshots. */
+  isActivityRoom?: boolean;
 };
 
 export function StudySessionView({
@@ -215,6 +228,8 @@ export function StudySessionView({
   libraryRoomParticipantLimit,
   joinCode,
   monitoringConsented = false,
+  screenCaptureGranted = false,
+  isActivityRoom = false,
 }: StudySessionPageProps = {}) {
   const presenceRoomId = libraryRoomId ?? "main";
   const isPrivateRoom = Boolean(libraryRoomId);
@@ -258,15 +273,25 @@ export function StudySessionView({
     headDownLong: false,
     alarmRunning: false,
     away: false,
+    sleepDrowsy: false,
+    multipleFaces: false,
+    excessiveDistraction: false,
   });
   const frameCaptureRef = useRef<(() => Promise<Blob | null>) | null>(null);
-  const pendingSnapshotsRef = useRef<PendingMonitoringSnapshot[]>([]);
   const snapshotThrottleRef = useRef<Record<string, number>>({});
+  const eventIndexRef = useRef(0);
+  const sessionIdRef = useRef<string | null>(null);
+  const lowFocusSinceRef = useRef<number | null>(null);
+  const multiFaceSinceRef = useRef<number | null>(null);
+  const [screenReady, setScreenReady] = useState(screenCaptureGranted);
   const monitoringActive =
-    isPrivateRoom &&
+    isActivityRoom &&
     libraryRoomRole === "participant" &&
     monitoringConsented &&
     Boolean(libraryRoomId);
+  const roomActivity = useRoomActivity(isActivityRoom ? libraryRoomId : undefined);
+  const [invitePanelOpen, setInvitePanelOpen] = useState(false);
+  const [hostPanelOpen, setHostPanelOpen] = useState(false);
   const sessionStartedAtRef = useRef<string | null>(null);
   const focusMsRef = useRef(0);
   const breakMsRef = useRef(0);
@@ -280,6 +305,8 @@ export function StudySessionView({
     headDown?: boolean;
     eyesClosed?: boolean;
     hasFace?: boolean;
+    drowsy?: boolean;
+    faceCount?: number;
   };
 
   // Focus sample for live analytics + library presence
@@ -290,6 +317,7 @@ export function StudySessionView({
   const [liveFocusFlags, setLiveFocusFlags] = useState<LiveFocusFlags>({});
   const [eyesClosedMs, setEyesClosedMs] = useState(0);
   const [alarmRunning, setAlarmRunning] = useState(false);
+  const [activityElapsedSec, setActivityElapsedSec] = useState(0);
 
   const [summary, setSummary] = useState<SessionEndSummary | null>(null);
   const [summaryOpen, setSummaryOpen] = useState(false);
@@ -324,25 +352,51 @@ export function StudySessionView({
       setAvatarUrl(url);
       setAvatarChecked(true);
 
-      if (!url) {
+      if (!url && !isActivityRoom) {
         window.setTimeout(() => setShowAvatarCreator(true), 1200);
       }
     };
     void checkAvatar();
-  }, [user, avatarChecked]);
+  }, [user, avatarChecked, isActivityRoom]);
 
-  // Transition to seat_select after entering (private rooms only)
+  // Transition after entering (private / activity rooms)
   useEffect(() => {
     if (
-      isPrivateRoom &&
-      flowState === "entering" &&
-      avatarChecked &&
-      !showAvatarCreator
+      !isPrivateRoom ||
+      flowState !== "entering" ||
+      !avatarChecked ||
+      showAvatarCreator
     ) {
-      const t = window.setTimeout(() => setFlowState("seat_select"), 800);
-      return () => clearTimeout(t);
+      return;
     }
-  }, [isPrivateRoom, flowState, avatarChecked, showAvatarCreator]);
+    const next: LibraryFlowState =
+      isActivityRoom && libraryRoomRole === "participant" && !roomActivity.isActive
+        ? "waiting_for_host"
+        : "seat_select";
+    const t = window.setTimeout(() => setFlowState(next), 800);
+    return () => clearTimeout(t);
+  }, [
+    isPrivateRoom,
+    isActivityRoom,
+    libraryRoomRole,
+    flowState,
+    avatarChecked,
+    showAvatarCreator,
+    roomActivity.isActive,
+  ]);
+
+  // Host started activity → participants leave waiting room
+  useEffect(() => {
+    if (
+      !isActivityRoom ||
+      libraryRoomRole !== "participant" ||
+      flowState !== "waiting_for_host" ||
+      !roomActivity.isActive
+    ) {
+      return;
+    }
+    setFlowState("seat_select");
+  }, [isActivityRoom, libraryRoomRole, flowState, roomActivity.isActive]);
 
   useEffect(() => { phaseRef.current = phase; }, [phase]);
   useEffect(() => { focusCompletedRef.current = focusCompleted; }, [focusCompleted]);
@@ -430,10 +484,15 @@ export function StudySessionView({
     const blocks = focusCompletedRef.current;
     const endedAt = new Date().toISOString();
     const stats = computeSessionStats(samples, focusMs, breakMs);
-    const shouldPersist = Boolean(user && started && samples.length > 0);
+    const shouldPersist = Boolean(
+      user &&
+        started &&
+        (samples.length > 0 || (isActivityRoom && focusMs >= 5_000)),
+    );
 
     setRunning(false);
     setPaused(false);
+    setActivityElapsedSec(0);
     resetLive();
     if (typeof document !== "undefined") document.title = "StudyTime";
     sessionStartedAtRef.current = null;
@@ -480,17 +539,11 @@ export function StudySessionView({
           focusMs,
           breakMs,
           libraryRoomId ?? null,
+          sessionIdRef.current,
+          roomActivity.activity?.id ?? null,
         );
-        if (monitoringActive && libraryRoomId) {
-          const snaps = [...pendingSnapshotsRef.current];
-          pendingSnapshotsRef.current = [];
-          void uploadMonitoringSnapshots(
-            libraryRoomId,
-            userSnapshot.id,
-            session.id,
-            snaps,
-          );
-        }
+        sessionIdRef.current = null;
+        stopScreenCapture();
         setSummary((prev) => (prev ? { ...prev, saved: true } : prev));
         let celebration: SessionCelebrationPayload | null = null;
         try {
@@ -515,7 +568,27 @@ export function StudySessionView({
         );
       }
     })();
-  }, [libraryRoomId, resetLive, user, refreshProgression]);
+  }, [libraryRoomId, isActivityRoom, resetLive, user, refreshProgression, roomActivity.activity?.id]);
+
+  // Host ended activity or scheduled end → stop participant sessions
+  useEffect(() => {
+    if (!isActivityRoom || !running || libraryRoomRole !== "participant") return;
+    const endedByHost =
+      roomActivity.activity?.status === "completed" && flowState === "studying";
+    const pastSchedule =
+      roomActivity.scheduledEnd != null && Date.now() >= roomActivity.scheduledEnd.getTime();
+    if (endedByHost || pastSchedule) {
+      void endSession();
+    }
+  }, [
+    isActivityRoom,
+    running,
+    libraryRoomRole,
+    roomActivity.activity?.status,
+    roomActivity.scheduledEnd,
+    flowState,
+    endSession,
+  ]);
 
   // ── Exit-guard: watch for navigation requests from Sidebar / Topbar ─────────
   useEffect(() => {
@@ -578,17 +651,21 @@ export function StudySessionView({
   useEffect(() => {
     if (!running || paused) return;
     const id = window.setInterval(() => {
+      sessionMsRef.current += 1000;
+      if (phaseRef.current === "focus") focusMsRef.current += 1000;
+      else breakMsRef.current += 1000;
+      if (isActivityRoom) {
+        setActivityElapsedSec(Math.floor(sessionMsRef.current / 1000));
+        return;
+      }
       setRemainingSec((s) => {
         if (s <= 0) return s;
-        sessionMsRef.current += 1000;
-        if (phaseRef.current === "focus") focusMsRef.current += 1000;
-        else breakMsRef.current += 1000;
         if (s === 1) { queueMicrotask(() => completeCurrentPhaseRef.current()); return 0; }
         return s - 1;
       });
     }, 1000);
     return () => clearInterval(id);
-  }, [running, paused]);
+  }, [running, paused, isActivityRoom]);
 
   // Tab title — keep timer visible when user switches away from the tab
   useEffect(() => {
@@ -615,20 +692,57 @@ export function StudySessionView({
   const lastUiUpdateMsRef = useRef<number>(0);
   const UI_THROTTLE_MS = 900;
 
-  const queueMonitoringSnapshot = useCallback(
-    async (eventType: MonitoringSnapshotEventType, sessionTMs: number) => {
-      if (!monitoringActive) return;
+  const queueEvidenceCapture = useCallback(
+    async (
+      eventType: EvidenceEventType,
+      sessionTMs: number,
+      durationMs?: number,
+      skipThrottle = false,
+      pushEvent = true,
+    ) => {
+      if (!monitoringActive || !libraryRoomId || !user || !sessionIdRef.current) return;
       const now = Date.now();
       const last = snapshotThrottleRef.current[eventType] ?? 0;
-      if (now - last < 45_000) return;
-      const capture = frameCaptureRef.current;
-      if (!capture) return;
-      const blob = await capture();
-      if (!blob) return;
+      if (!skipThrottle && eventType !== "session_start" && now - last < 45_000) return;
+
+      const paired = await capturePairedEvidence(frameCaptureRef.current);
+      if (!paired.webcam && !paired.screen) return;
+
       snapshotThrottleRef.current[eventType] = now;
-      pendingSnapshotsRef.current.push({ eventType, sessionTMs, blob });
+      eventIndexRef.current += 1;
+      const eventIndex = eventIndexRef.current;
+
+      if (pushEvent) {
+        eventsRef.current.push({
+          t: sessionTMs,
+          type: eventType,
+          meta: durationMs ? { durationMs } : undefined,
+        });
+      }
+
+      void uploadEvidenceRecord({
+        roomId: libraryRoomId,
+        userId: user.id,
+        sessionId: sessionIdRef.current,
+        activityId: roomActivity.activity?.id ?? null,
+        record: {
+          eventIndex,
+          eventType,
+          sessionTMs,
+          durationMs,
+          webcam: paired.webcam,
+          screen: paired.screen,
+        },
+      });
     },
-    [monitoringActive],
+    [monitoringActive, libraryRoomId, user, roomActivity.activity?.id],
+  );
+
+  useWindowFocusMonitoring(
+    monitoringActive && running && flowState === "studying",
+    (durationMs) => {
+      void queueEvidenceCapture("tab_switch", sessionMsRef.current, durationMs);
+    },
   );
 
   // Focus sample handler
@@ -671,21 +785,66 @@ export function StudySessionView({
     const eyesClosed10sNow = (durations?.eyesClosedMs ?? 0) >= 10_000;
     const lookingAwayLongNow = (durations?.lookingAwayMs ?? 0) >= 6_000;
     const headDownLongNow = (durations?.headDownMs ?? 0) >= 4_500;
+    const drowsyNow =
+      sampleFlags?.drowsy === true ||
+      eyesClosed10sNow ||
+      sample.state === "sleeping";
+    const faceCount = (sampleFlags as { faceCount?: number })?.faceCount ?? 0;
+    const multiFaceNow = faceCount > 1;
+    if (multiFaceNow) {
+      if (multiFaceSinceRef.current == null) multiFaceSinceRef.current = nowMs;
+    } else {
+      multiFaceSinceRef.current = null;
+    }
+    const multiFaceSustained =
+      multiFaceNow &&
+      multiFaceSinceRef.current != null &&
+      nowMs - multiFaceSinceRef.current >= 2_000;
+
+    const distractedNow =
+      sample.state === "distracted" ||
+      sample.state === "away" ||
+      sample.state === "sleeping" ||
+      sample.score < 40;
+    if (distractedNow) {
+      if (lowFocusSinceRef.current == null) lowFocusSinceRef.current = nowMs;
+    } else {
+      lowFocusSinceRef.current = null;
+    }
+    const excessiveNow =
+      lowFocusSinceRef.current != null && nowMs - lowFocusSinceRef.current >= 12_000;
+
     if (phoneNow && !prev.phoneDetected) {
-      eventsRef.current.push({ t, type: "phone_detected" });
-      void queueMonitoringSnapshot("phone_detected", t);
+      if (!monitoringActive) eventsRef.current.push({ t, type: "phone_detected" });
+      void queueEvidenceCapture("phone_detected", t);
     }
     if (lookingAwayLongNow && !prev.lookingAwayLong) {
       eventsRef.current.push({ t, type: "look_away_long" });
-      eventsRef.current.push({ t, type: "drift" });
-      void queueMonitoringSnapshot("drift", t);
+      if (!monitoringActive) eventsRef.current.push({ t, type: "drift" });
+      void queueEvidenceCapture("drift", t);
     }
     if (awayNow && !prev.away) {
-      eventsRef.current.push({ t, type: "off_screen" });
-      void queueMonitoringSnapshot("off_screen", t);
+      if (!monitoringActive) eventsRef.current.push({ t, type: "off_screen" });
+      void queueEvidenceCapture("off_screen", t);
+    }
+    if (drowsyNow && !prev.sleepDrowsy) {
+      if (!monitoringActive) eventsRef.current.push({ t, type: "eyes_closed_10s" });
+      void queueEvidenceCapture("sleep_drowsy", t, durations?.eyesClosedMs);
+    }
+    if (multiFaceSustained && !prev.multipleFaces) {
+      void queueEvidenceCapture("multiple_faces", t);
+    }
+    if (excessiveNow && !prev.excessiveDistraction) {
+      void queueEvidenceCapture(
+        "excessive_distraction",
+        t,
+        lowFocusSinceRef.current ? nowMs - lowFocusSinceRef.current : undefined,
+      );
     }
     if (headDownLongNow && !prev.headDownLong) eventsRef.current.push({ t, type: "head_down_long" });
-    if (eyesClosed10sNow && !prev.eyesClosed10s) eventsRef.current.push({ t, type: "eyes_closed_10s" });
+    if (eyesClosed10sNow && !prev.eyesClosed10s && !monitoringActive) {
+      eventsRef.current.push({ t, type: "eyes_closed_10s" });
+    }
     const shouldAlarm = eyesClosed10sNow && sample.state === "sleeping";
     const alarm = alarmRef.current;
     if (shouldAlarm && alarm && !alarm.isRunning()) { alarm.start(); eventsRef.current.push({ t, type: "alarm_started" }); }
@@ -698,12 +857,15 @@ export function StudySessionView({
       headDownLong: headDownLongNow,
       alarmRunning: alarm?.isRunning() ?? false,
       away: awayNow,
+      sleepDrowsy: drowsyNow,
+      multipleFaces: multiFaceSustained,
+      excessiveDistraction: excessiveNow,
     };
     samplesRef.current.push({
       t: sessionMsRef.current, score: sample.score, state: sample.state,
       flags: sampleFlags ? { phoneDetected: sampleFlags.phoneDetected, lookingAway: sampleFlags.lookingAway, headDown: sampleFlags.headDown, eyesClosed: sampleFlags.eyesClosed, drowsy: (sampleFlags as { drowsy?: boolean }).drowsy, hasFace: sampleFlags.hasFace } : undefined,
     });
-  }, [running, paused, queueMonitoringSnapshot]);
+  }, [running, paused, monitoringActive, queueEvidenceCapture]);
 
   // Alarm cleanup
   useEffect(() => {
@@ -713,13 +875,18 @@ export function StudySessionView({
 
   const startSession = useCallback(() => {
     if (!user) return;
-    void saveSessionTimerSettings(user.id, timerSettings);
+    if (!isActivityRoom) void saveSessionTimerSettings(user.id, timerSettings);
     if (!alarmRef.current) alarmRef.current = createAlarmController();
     alarmRef.current.prime();
-    samplesRef.current = []; eventsRef.current = [];
-    pendingSnapshotsRef.current = [];
+    samplesRef.current = [];
+    eventsRef.current = [];
     snapshotThrottleRef.current = {};
-    focusMsRef.current = 0; breakMsRef.current = 0; sessionMsRef.current = 0;
+    eventIndexRef.current = 0;
+    focusMsRef.current = 0;
+    breakMsRef.current = 0;
+    sessionMsRef.current = 0;
+    lowFocusSinceRef.current = null;
+    multiFaceSinceRef.current = null;
     setFocusCompleted(0);
     prevFlagsRef.current = {
       phoneDetected: false,
@@ -728,20 +895,58 @@ export function StudySessionView({
       headDownLong: false,
       alarmRunning: false,
       away: false,
+      sleepDrowsy: false,
+      multipleFaces: false,
+      excessiveDistraction: false,
     };
-    sessionStartedAtRef.current = new Date().toISOString();
+    const startedAt = new Date().toISOString();
+    sessionStartedAtRef.current = startedAt;
+    const sessionId = crypto.randomUUID();
+    sessionIdRef.current = sessionId;
+    if (monitoringActive) {
+      void beginStudySession({
+        id: sessionId,
+        userId: user.id,
+        startedAt,
+        roomId: libraryRoomId ?? null,
+        activityId: roomActivity.activity?.id ?? null,
+      }).catch(() => {
+        /* evidence may fail without DB row */
+      });
+    }
     eventsRef.current.push({ t: 0, type: "session_start" });
-    phaseRef.current = "focus"; setPhase("focus");
-    setRemainingSec(focusSec);
+    phaseRef.current = "focus";
+    setPhase("focus");
+    setRemainingSec(isActivityRoom ? 0 : focusSec);
     setRunning(true);
     setPaused(false);
+    setActivityElapsedSec(0);
     setFlowState("studying");
     if (monitoringActive) {
       window.setTimeout(() => {
-        void queueMonitoringSnapshot("session_start", 0);
+        void queueEvidenceCapture("session_start", 0, undefined, true, false);
       }, 1800);
     }
-  }, [user, focusSec, timerSettings, monitoringActive, queueMonitoringSnapshot]);
+  }, [
+    user,
+    focusSec,
+    timerSettings,
+    monitoringActive,
+    isActivityRoom,
+    libraryRoomId,
+    roomActivity.activity?.id,
+    queueEvidenceCapture,
+  ]);
+
+  const handleStartActivity = useCallback(async () => {
+    if (!user) return;
+    if (monitoringActive && !screenReady && !hasScreenCapturePermission()) {
+      const granted = await requestScreenCapture();
+      setScreenReady(granted);
+      if (!granted) return;
+    }
+    startSession();
+  }, [user, monitoringActive, screenReady, startSession]);
 
   // Phase progress for timer ring
   const phaseTotalSec = useMemo(() => {
@@ -777,10 +982,30 @@ export function StudySessionView({
     roomId: presenceRoomId,
   });
 
+  // Auto-seat in activity rooms
+  useEffect(() => {
+    if (!isActivityRoom || flowState !== "seat_select" || selectedSeatId) return;
+    const seats = getActiveSeats(libraryRoomParticipantLimit);
+    const occupied = new Set(
+      [...peers.values()].map((p) => p.seatId).filter(Boolean) as string[],
+    );
+    const free = seats.find((s) => !occupied.has(s.id));
+    if (free) {
+      setSelectedSeatId(free.id);
+      setFlowState("ready_to_start");
+    }
+  }, [
+    isActivityRoom,
+    flowState,
+    selectedSeatId,
+    libraryRoomParticipantLimit,
+    peers,
+  ]);
+
   const handleSeatClick = useCallback((seatId: string) => {
     setSelectedSeatId(seatId);
-    setFlowState("duration_select");
-  }, []);
+    setFlowState(isActivityRoom ? "ready_to_start" : "duration_select");
+  }, [isActivityRoom]);
 
   const handleAvatarSaved = useCallback((url: string) => {
     setAvatarUrl(url);
@@ -873,12 +1098,44 @@ export function StudySessionView({
             joinCode={joinCode}
             isHost={libraryRoomRole === "host"}
             isPrivateRoom={isPrivateRoom}
+            isActivityRoom={isActivityRoom}
             isImmersive={isImmersive}
             onToggleImmersive={toggleImmersive}
+            hideImmersiveToggle={hostPanelOpen}
             onChangeLibrary={!isPrivateRoom ? handleChangeLibrary : undefined}
+            onInviteParticipants={
+              isActivityRoom && libraryRoomRole === "host" && libraryRoomId
+                ? () => setInvitePanelOpen(true)
+                : undefined
+            }
+            onManageActivity={
+              isActivityRoom && libraryRoomRole === "host"
+                ? () => setHostPanelOpen(true)
+                : undefined
+            }
           />
         </motion.div>
       )}
+
+      {libraryRoomId ? (
+        <ActivityRoomInvitePanel
+          roomId={libraryRoomId}
+          open={invitePanelOpen}
+          onClose={() => setInvitePanelOpen(false)}
+        />
+      ) : null}
+
+      {isActivityRoom && libraryRoomRole === "host" && libraryRoomId ? (
+        <ActivityHostPanel
+          roomId={libraryRoomId}
+          activity={roomActivity.activity}
+          open={hostPanelOpen}
+          onClose={() => setHostPanelOpen(false)}
+          onActivityChange={() => void roomActivity.refresh()}
+          isImmersive={isImmersive}
+          onToggleImmersive={toggleImmersive}
+        />
+      ) : null}
 
       {/* === Avatar Creator (full-screen, new users only) === */}
       {showAvatarCreator && (
@@ -929,16 +1186,80 @@ export function StudySessionView({
                 variants={sessionWelcomeItem}
                 className="mt-1 text-sm text-slate-300"
               >
-                {isPrivateRoom
-                  ? "Your private study room — find a seat and focus together"
-                  : "Find a seat and start your focus session"}
+                {isActivityRoom
+                  ? "Activity room — find a seat and start your session"
+                  : isPrivateRoom
+                    ? "Find a seat and focus together"
+                    : "Find a seat and start your focus session"}
               </motion.p>
             </motion.div>
           </motion.div>
         )}
 
         {/* SEAT SELECT — instruction banner */}
-        {(flowState === "seat_select" || flowState === "duration_select") && (
+        {flowState === "waiting_for_host" && isActivityRoom && (
+          <motion.div
+            key="waiting_for_host"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-[200] flex items-center justify-center bg-black/50 px-4 backdrop-blur-sm"
+          >
+            <div className="game-lite-modal max-w-md p-6 text-center">
+              <Clock className="mx-auto mb-3 h-10 w-10 text-amber-300" />
+              <h2 className="text-lg font-bold text-text">Waiting for host</h2>
+              <p className="mt-2 text-sm text-muted">
+                The host will start the activity. You&apos;ll be able to pick a seat once it begins.
+              </p>
+              {roomActivity.scheduledEnd ? (
+                <p className="mt-3 text-xs text-sky-200/80">
+                  Scheduled to end {roomActivity.scheduledEnd.toLocaleString()}
+                </p>
+              ) : null}
+            </div>
+          </motion.div>
+        )}
+
+        {flowState === "ready_to_start" && isActivityRoom && (
+          <motion.div
+            key="ready_to_start"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-[200] flex items-center justify-center bg-black/55 px-4 backdrop-blur-sm"
+          >
+            <div className="game-lite-modal w-full max-w-md p-6 text-center">
+              <p className="text-xs uppercase tracking-wider text-muted">Activity room</p>
+              <h2 className="mt-1 text-xl font-bold text-text">Ready to start</h2>
+              <p className="mt-2 text-sm text-muted">
+                {selectedSeat
+                  ? `Seated at ${selectedSeat.label}.`
+                  : "Your seat is ready."}
+                {" "}Press Start Activity when you&apos;re ready to begin.
+              </p>
+              {roomActivity.scheduledEnd ? (
+                <p className="mt-2 text-xs text-sky-200/80">
+                  Activity ends at {roomActivity.scheduledEnd.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                </p>
+              ) : null}
+              {!screenReady && monitoringActive ? (
+                <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+                  Screen sharing is required. You&apos;ll be prompted when you start.
+                </p>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => void handleStartActivity()}
+                className="game-lite-btn-gold mt-5 w-full"
+              >
+                <Sparkles className="h-4 w-4" />
+                Start Activity
+              </button>
+            </div>
+          </motion.div>
+        )}
+
+        {(flowState === "seat_select" || flowState === "duration_select") && !isActivityRoom && (
           <motion.div
             key="session_steps"
             initial={{ opacity: 0, y: -8 }}
@@ -970,7 +1291,7 @@ export function StudySessionView({
         )}
 
         {/* DURATION SELECT — centered picker overlay */}
-        {flowState === "duration_select" && (
+        {flowState === "duration_select" && !isActivityRoom && (
           <motion.div
             key="duration_select"
             initial={{ opacity: 0 }}
@@ -1070,6 +1391,8 @@ export function StudySessionView({
             eyesClosedMs={eyesClosedMs}
             alarmRunning={alarmRunning}
             layout={panelLayout}
+            showTimer={!isActivityRoom}
+            activityElapsedSec={activityElapsedSec}
           />
         </motion.div>
       )}

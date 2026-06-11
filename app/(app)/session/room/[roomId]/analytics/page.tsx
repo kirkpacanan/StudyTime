@@ -1,7 +1,12 @@
 "use client";
 
 import { RoomAnalyticsDashboard } from "@/components/library-rooms/RoomAnalyticsDashboard";
-import { getLibraryRoomAnalytics, getLibraryRoomById, getLibraryRoomRole } from "@/lib/library-rooms";
+import {
+  getLibraryRoomAnalytics,
+  getLibraryRoomById,
+  getLibraryRoomRole,
+  isActivityRoom,
+} from "@/lib/library-rooms";
 import type { LibraryRoom, LibraryRoomAnalyticsRow } from "@/lib/library-rooms";
 import { motion } from "framer-motion";
 import { ArrowLeft, BarChart3 } from "lucide-react";
@@ -22,7 +27,7 @@ export default function LibraryRoomAnalyticsPage() {
         getLibraryRoomById(roomId),
         getLibraryRoomRole(roomId),
       ]);
-      if (!r || role !== "host") {
+      if (!r || role !== "host" || !isActivityRoom(r)) {
         router.replace(`/session/room/${roomId}`);
         return;
       }

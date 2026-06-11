@@ -8,26 +8,22 @@ import {
   MIN_LIBRARY_PARTICIPANTS,
 } from "@/lib/library/seats";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { BookOpen, Lock, Unlock, Users, X } from "lucide-react";
+import { Activity, BarChart3, Camera, Mail, Users, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 const CATEGORIES = ["Education", "Business", "Training", "Meeting", "Other"];
 const SHEET_SPRING = { type: "spring" as const, stiffness: 320, damping: 34 };
 
-const PRIVACY_OPTIONS = [
-  {
-    value: false,
-    label: "Public",
-    icon: Unlock,
-    helper: "Listed in the lobby — anyone can browse and join.",
-  },
-  {
-    value: true,
-    label: "Private",
-    icon: Lock,
-    helper: "Hidden from the lobby — share your room code to invite others.",
-  },
-] as const;
+function parseInviteEmails(raw: string): string[] {
+  return [
+    ...new Set(
+      raw
+        .split(/[\s,;]+/)
+        .map((e) => e.trim().toLowerCase())
+        .filter((e) => e.includes("@")),
+    ),
+  ];
+}
 
 type CreateLibraryRoomSheetProps = {
   open: boolean;
@@ -45,7 +41,7 @@ export function CreateLibraryRoomSheet({
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState("");
   const [limit, setLimit] = useState("10");
-  const [isPrivate, setIsPrivate] = useState(true);
+  const [inviteEmails, setInviteEmails] = useState("");
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -56,7 +52,9 @@ export function CreateLibraryRoomSheet({
     return n;
   }, [limit]);
 
-  const displayName = name.trim() || "Your study room";
+  const parsedInvites = useMemo(() => parseInviteEmails(inviteEmails), [inviteEmails]);
+
+  const displayName = name.trim() || "Your activity room";
   const displayCategory = category
     ? category.charAt(0).toUpperCase() + category.slice(1)
     : "Uncategorized";
@@ -109,7 +107,8 @@ export function CreateLibraryRoomSheet({
         description: description.trim() || undefined,
         category: category || undefined,
         participant_limit: finalLimit,
-        is_private: isPrivate,
+        room_type: "activity",
+        invite_emails: parsedInvites,
       });
       onCreated(room);
       onClose();
@@ -117,9 +116,9 @@ export function CreateLibraryRoomSheet({
       setDescription("");
       setCategory("");
       setLimit("10");
-      setIsPrivate(true);
+      setInviteEmails("");
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Failed to create room.");
+      setErr(e instanceof Error ? e.message : "Failed to create activity room.");
     } finally {
       setLoading(false);
     }
@@ -133,9 +132,9 @@ export function CreateLibraryRoomSheet({
       {open && (
         <>
           <motion.button
-            key="create-library-room-overlay"
+            key="create-activity-room-overlay"
             type="button"
-            aria-label="Close create room"
+            aria-label="Close create activity room"
             className="absolute inset-0 z-[30] border-0 bg-black/55 backdrop-blur-sm"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -145,10 +144,10 @@ export function CreateLibraryRoomSheet({
           />
 
           <motion.aside
-            key="create-library-room-sheet"
+            key="create-activity-room-sheet"
             role="dialog"
             aria-modal="true"
-            aria-labelledby="create-library-room-title"
+            aria-labelledby="create-activity-room-title"
             className="game-lite-sheet absolute inset-y-3 right-0 z-[40] flex w-full max-w-md flex-col overflow-hidden rounded-l-xl shadow-2xl"
             initial={reduce ? false : { x: "100%" }}
             animate={{ x: 0 }}
@@ -158,10 +157,10 @@ export function CreateLibraryRoomSheet({
             <div className="flex shrink-0 items-center justify-between border-b border-white/[0.08] px-5 py-3">
               <div className="flex items-center gap-2">
                 <div className="game-lite-icon !h-8 !w-8 !rounded-lg">
-                  <BookOpen className="h-4 w-4 text-sky-200" />
+                  <Activity className="h-4 w-4 text-sky-200" />
                 </div>
-                <h2 id="create-library-room-title" className="text-sm font-bold text-white">
-                  Create Study Room
+                <h2 id="create-activity-room-title" className="text-sm font-bold text-white">
+                  Create Activity Room
                 </h2>
               </div>
               <button
@@ -179,15 +178,21 @@ export function CreateLibraryRoomSheet({
               className="flex min-h-0 flex-1 flex-col"
             >
               <div className="shrink-0 space-y-3 overflow-y-auto px-5 py-4">
+                <p className="rounded-lg border border-violet-500/25 bg-violet-500/10 px-3 py-2 text-[11px] leading-relaxed text-violet-100/90">
+                  For open study, everyone uses the Main Library. Activity rooms are
+                  invite-only — email or join code — with host analytics and monitoring
+                  snapshots for every session.
+                </p>
+
                 <div>
                   <label className="game-lite-label mb-1 block">
-                    Room Name <span className="text-red-400">*</span>
+                    Room name <span className="text-red-400">*</span>
                   </label>
                   <input
                     className={inputCls}
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="e.g. Study Group, CS 101"
+                    placeholder="e.g. CS 101 Focus Lab"
                     required
                   />
                 </div>
@@ -198,7 +203,7 @@ export function CreateLibraryRoomSheet({
                     className={inputCls + " !min-h-[3.25rem] !items-start resize-none py-2"}
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
-                    placeholder="Who studies here?"
+                    placeholder="What will participants do here?"
                     rows={2}
                   />
                 </div>
@@ -233,51 +238,31 @@ export function CreateLibraryRoomSheet({
                       onBlur={commitLimit}
                     />
                     <p className="mt-1 text-[10px] text-sky-200/45">
-                      Up to {MAX_LIBRARY_PARTICIPANTS} seats in the library layout
+                      {MIN_LIBRARY_PARTICIPANTS}–{MAX_LIBRARY_PARTICIPANTS} participants
                     </p>
                   </div>
                 </div>
 
                 <div>
-                  <label className="game-lite-label mb-1.5 block">Privacy</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {PRIVACY_OPTIONS.map(({ value, label, icon: Icon, helper }) => {
-                      const selected = isPrivate === value;
-                      return (
-                        <button
-                          key={String(value)}
-                          type="button"
-                          onClick={() => setIsPrivate(value)}
-                          className={
-                            "rounded-xl border p-2.5 text-left transition " +
-                            (selected
-                              ? "border-sky-500/50 bg-sky-500/10"
-                              : "border-[#1a3050] bg-black/20 hover:border-sky-600/30")
-                          }
-                        >
-                          <div className="flex items-center gap-1.5">
-                            <Icon
-                              className={
-                                "h-3.5 w-3.5 " +
-                                (selected ? "text-sky-300" : "text-sky-200/50")
-                              }
-                            />
-                            <span
-                              className={
-                                "text-xs font-bold " +
-                                (selected ? "text-white" : "text-sky-200/70")
-                              }
-                            >
-                              {label}
-                            </span>
-                          </div>
-                          <p className="mt-1 pl-5 text-[10px] leading-snug text-sky-200/50">
-                            {helper}
-                          </p>
-                        </button>
-                      );
-                    })}
-                  </div>
+                  <label className="game-lite-label mb-1 flex items-center gap-1.5">
+                    <Mail className="h-3 w-3" />
+                    Invite by email
+                  </label>
+                  <textarea
+                    className={inputCls + " !min-h-[3rem] !items-start resize-none py-2 font-normal"}
+                    value={inviteEmails}
+                    onChange={(e) => setInviteEmails(e.target.value)}
+                    placeholder="one@school.edu, two@school.edu"
+                    rows={2}
+                  />
+                  <p className="mt-1 text-[10px] text-sky-200/45">
+                    Invited users can accept from the library lobby. Others need your join code.
+                  </p>
+                  {parsedInvites.length > 0 && (
+                    <p className="mt-1 text-[10px] font-medium text-emerald-300/90">
+                      {parsedInvites.length} invite{parsedInvites.length !== 1 ? "s" : ""} ready to send
+                    </p>
+                  )}
                 </div>
 
                 {err ? (
@@ -289,49 +274,43 @@ export function CreateLibraryRoomSheet({
 
               <div className="flex min-h-0 flex-1 flex-col justify-end px-5 pb-4">
                 <div className="game-lite-enter-panel !space-y-2">
-                  <p className="game-lite-label">Room preview</p>
+                  <p className="game-lite-label">Preview</p>
                   <div className="flex items-start gap-3">
                     <div className="game-lite-icon !h-10 !w-10 shrink-0">
-                      <BookOpen className="h-4 w-4 text-sky-200" />
+                      <Activity className="h-4 w-4 text-sky-200" />
                     </div>
                     <div className="min-w-0 flex-1">
                       <p className="line-clamp-1 text-sm font-bold text-white">{displayName}</p>
                       <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-sky-200/55">
-                        {description.trim() || "Add a short description for your room."}
+                        {description.trim() || "Invite-only activity room with host analytics."}
                       </p>
                       <div className="mt-2 flex flex-wrap items-center gap-2">
                         <span className="game-lite-badge game-lite-badge-sky">{displayCategory}</span>
-                        <span
-                          className={
-                            isPrivate
-                              ? "game-lite-badge border-slate-500/40 bg-slate-500/15 text-slate-300"
-                              : "game-lite-badge border-emerald-500/35 bg-emerald-500/12 text-emerald-300"
-                          }
-                        >
-                          {isPrivate ? (
-                            <>
-                              <Lock className="h-2.5 w-2.5" />
-                              Private
-                            </>
-                          ) : (
-                            <>
-                              <Unlock className="h-2.5 w-2.5" />
-                              Public
-                            </>
-                          )}
+                        <span className="game-lite-badge border-violet-500/35 bg-violet-500/12 text-violet-200">
+                          <Activity className="h-2.5 w-2.5" />
+                          Activity room
                         </span>
                         <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-sky-300/70">
                           <Users className="h-3.5 w-3.5" />
                           1 / {seatCountPreview}
                         </span>
                       </div>
+                      <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-sky-200/50">
+                        <span className="inline-flex items-center gap-1">
+                          <BarChart3 className="h-3 w-3" />
+                          Analytics
+                        </span>
+                        <span className="inline-flex items-center gap-1">
+                          <Camera className="h-3 w-3" />
+                          Snapshots
+                        </span>
+                        <span className="inline-flex items-center gap-1">
+                          <Mail className="h-3 w-3" />
+                          Email + code access
+                        </span>
+                      </div>
                     </div>
                   </div>
-                  <p className="text-[10px] leading-relaxed text-sky-200/45">
-                    {isPrivate
-                      ? "You'll receive a join code to share after creating this room."
-                      : "This room will appear in Public study rooms for anyone to join."}
-                  </p>
                 </div>
               </div>
 
@@ -341,7 +320,7 @@ export function CreateLibraryRoomSheet({
                   disabled={loading || !name.trim()}
                   className="game-lite-btn-sky w-full !min-h-[2.5rem] disabled:opacity-50"
                 >
-                  {loading ? "Creating…" : "Create Room"}
+                  {loading ? "Creating…" : "Create activity room"}
                 </button>
               </div>
             </form>

@@ -381,10 +381,11 @@ export function SessionSummaryCelebration({
                   </motion.div>
                 ) : (
                   <div className="space-y-4">
-                    {!summary.saved ? (
+                    {!summary.saved && !summary.saveError && !saving ? (
                       <div className="rounded-xl border border-amber-400/30 bg-amber-500/10 px-4 py-4 text-sm leading-relaxed text-muted">
-                        Nothing was saved — enable the camera and complete a focus
-                        block to earn points and ranks.
+                        {summary.sampleCount > 0
+                          ? "Your session could not be saved. Try again or check your connection."
+                          : "Nothing was saved — enable the camera and study for a bit to earn points and ranks."}
                       </div>
                     ) : null}
                   </div>

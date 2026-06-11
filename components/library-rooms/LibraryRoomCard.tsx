@@ -3,7 +3,7 @@
 import { cn } from "@/lib/cn";
 import type { LibraryRoomWithRole } from "@/lib/library-rooms";
 import { motion } from "framer-motion";
-import { BookOpen, Check, Copy, Lock, LogOut, Trash2, Unlock, Users } from "lucide-react";
+import { Activity, BookOpen, Check, Copy, LogOut, Trash2, Users } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
@@ -105,17 +105,10 @@ function RoomCardContent({
                   {room.category}
                 </span>
               )}
-              {room.is_private ? (
-                <span className="game-lite-badge border-slate-500/40 bg-slate-500/15 text-slate-300">
-                  <Lock className="h-2.5 w-2.5" />
-                  Private
-                </span>
-              ) : (
-                <span className="game-lite-badge border-emerald-500/35 bg-emerald-500/12 text-emerald-300">
-                  <Unlock className="h-2.5 w-2.5" />
-                  Public
-                </span>
-              )}
+              <span className="game-lite-badge border-violet-500/35 bg-violet-500/12 text-violet-200">
+                <Activity className="h-2.5 w-2.5" />
+                Activity
+              </span>
             </div>
             {room.description ? (
               <p className="mt-2 line-clamp-1 text-[11px] leading-relaxed text-sky-200/50">
@@ -196,17 +189,10 @@ function RoomCardContent({
               <LogOut className="h-3.5 w-3.5" />
             </button>
           ) : null}
-          {room.is_private ? (
-            <span className="inline-flex items-center gap-1 rounded-full border border-slate-400/20 bg-slate-400/10 px-2 py-0.5 text-[10px] font-medium text-muted">
-              <Lock className="h-2.5 w-2.5" />
-              Private
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/25 bg-emerald-400/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
-              <Unlock className="h-2.5 w-2.5" />
-              Public
-            </span>
-          )}
+          <span className="inline-flex items-center gap-1 rounded-full border border-violet-400/25 bg-violet-400/10 px-2 py-0.5 text-[10px] font-medium text-violet-300">
+            <Activity className="h-2.5 w-2.5" />
+            Activity
+          </span>
           {room.role === "host" && (
             <span className="rounded-full border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-400">
               Host

@@ -10,19 +10,19 @@ import {
   focusBand,
   focusBandClasses,
   focusBandLabel,
+  getRoomActivityEventLog,
   getRoomMemberSessions,
-  getRoomMonitoringSnapshots,
-  snapshotEventLabel,
+  type ActivityEventLogRow,
   type RoomMemberSessionRow,
-  type RoomMonitoringSnapshot,
 } from "@/lib/room-monitoring";
+import { ActivityEventLog } from "@/components/library-rooms/ActivityEventLog";
 import { cn } from "@/lib/cn";
+import { sortByLastFirstName } from "@/lib/sort-display-name";
 import {
   AlertTriangle,
   ChevronDown,
   ChevronRight,
   Download,
-  Image as ImageIcon,
   Monitor,
   Smartphone,
   UserX,
@@ -36,13 +36,6 @@ function formatFocusMs(ms: number): string {
   const m = Math.floor((ms % 3_600_000) / 60_000);
   if (h > 0) return `${h}h ${m}m`;
   return `${m}m`;
-}
-
-function formatSessionT(ms: number): string {
-  const totalSec = Math.floor(ms / 1000);
-  const m = Math.floor(totalSec / 60);
-  const s = totalSec % 60;
-  return `${m}:${String(s).padStart(2, "0")}`;
 }
 
 type RoomAnalyticsDashboardProps = {
@@ -59,7 +52,7 @@ export function RoomAnalyticsDashboard({
   const { participants, avgScore, flaggedCount } = useHostLibraryRoom(roomId);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [sessionsCache, setSessionsCache] = useState<Record<string, RoomMemberSessionRow[]>>({});
-  const [snapshotsCache, setSnapshotsCache] = useState<Record<string, RoomMonitoringSnapshot[]>>({});
+  const [eventLogCache, setEventLogCache] = useState<Record<string, ActivityEventLogRow[]>>({});
   const [loadingDetail, setLoadingDetail] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
 
@@ -70,7 +63,7 @@ export function RoomAnalyticsDashboard({
   }, [participants]);
 
   const sortedRows = useMemo(
-    () => [...rows].sort((a, b) => a.user_name.localeCompare(b.user_name)),
+    () => sortByLastFirstName(rows, (r) => r.user_name),
     [rows],
   );
 
@@ -93,23 +86,23 @@ export function RoomAnalyticsDashboard({
 
   const loadMemberDetail = useCallback(
     async (userId: string) => {
-      if (sessionsCache[userId] && snapshotsCache[userId]) return;
+      if (sessionsCache[userId] && eventLogCache[userId]) return;
       setLoadingDetail(userId);
       try {
-        const [sessions, snapshots] = await Promise.all([
+        const [sessions, eventLog] = await Promise.all([
           getRoomMemberSessions(roomId, userId),
-          getRoomMonitoringSnapshots(roomId, userId),
+          getRoomActivityEventLog(roomId, userId),
         ]);
         setSessionsCache((prev) => ({ ...prev, [userId]: sessions }));
-        setSnapshotsCache((prev) => ({ ...prev, [userId]: snapshots }));
+        setEventLogCache((prev) => ({ ...prev, [userId]: eventLog }));
       } catch {
         setSessionsCache((prev) => ({ ...prev, [userId]: [] }));
-        setSnapshotsCache((prev) => ({ ...prev, [userId]: [] }));
+        setEventLogCache((prev) => ({ ...prev, [userId]: [] }));
       } finally {
         setLoadingDetail(null);
       }
     },
-    [roomId, sessionsCache, snapshotsCache],
+    [roomId, sessionsCache, eventLogCache],
   );
 
   useEffect(() => {
@@ -125,11 +118,18 @@ export function RoomAnalyticsDashboard({
           sessionsByUser[row.user_id] = await getRoomMemberSessions(roomId, row.user_id);
         }
       }
+      const eventLogByUser: Record<string, ActivityEventLogRow[]> = { ...eventLogCache };
+      for (const row of sortedRows) {
+        if (!eventLogByUser[row.user_id]) {
+          eventLogByUser[row.user_id] = await getRoomActivityEventLog(roomId, row.user_id);
+        }
+      }
       const blob = await exportRoomAnalyticsXlsx({
         roomName,
         exportedAt: new Date().toLocaleString(),
         members: sortedRows,
         sessionsByUser,
+        eventLogByUser,
       });
       downloadRoomAnalyticsBlob(blob, roomName);
     } finally {
@@ -176,9 +176,7 @@ export function RoomAnalyticsDashboard({
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            {[...participants]
-              .sort((a, b) => a.name.localeCompare(b.name))
-              .map((p) => {
+            {sortByLastFirstName(participants, (p) => p.name).map((p) => {
                 const band = focusBand(p.score);
                 const cls = focusBandClasses(band);
                 return (
@@ -232,7 +230,7 @@ export function RoomAnalyticsDashboard({
         </div>
       ) : (
         <div className="space-y-2">
-          {sortedRows.map((row) => {
+          {sortedRows.map((row, index) => {
             const liveScore = liveByUser.get(row.user_id);
             const displayScore =
               liveScore != null ? liveScore : Number(row.avg_focus);
@@ -240,7 +238,7 @@ export function RoomAnalyticsDashboard({
             const cls = focusBandClasses(band);
             const expanded = expandedId === row.user_id;
             const sessions = sessionsCache[row.user_id] ?? [];
-            const snapshots = snapshotsCache[row.user_id] ?? [];
+            const eventLog = eventLogCache[row.user_id] ?? [];
 
             return (
               <div
@@ -262,6 +260,12 @@ export function RoomAnalyticsDashboard({
                   ) : (
                     <ChevronRight className="h-4 w-4 shrink-0 text-muted" />
                   )}
+                  <span
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/5 font-mono text-xs font-semibold tabular-nums text-sky-200/90 ring-1 ring-white/10"
+                    aria-hidden
+                  >
+                    {index + 1}
+                  </span>
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-semibold text-text">{row.user_name}</p>
                     <p className="text-xs text-muted">
@@ -353,40 +357,12 @@ export function RoomAnalyticsDashboard({
                           <p className="text-sm text-muted">No completed sessions yet.</p>
                         )}
 
-                        {snapshots.length > 0 ? (
-                          <div>
-                            <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted">
-                              <ImageIcon className="h-3.5 w-3.5" />
-                              Monitoring photos (host only)
-                            </h3>
-                            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-                              {snapshots.map((snap) => (
-                                <figure
-                                  key={snap.id}
-                                  className="overflow-hidden rounded-xl border border-[var(--cc-border)] bg-black/20"
-                                >
-                                  {snap.signed_url ? (
-                                    <img
-                                      src={snap.signed_url}
-                                      alt={snapshotEventLabel(snap.event_type)}
-                                      className="aspect-video w-full object-cover"
-                                    />
-                                  ) : (
-                                    <div className="flex aspect-video items-center justify-center text-xs text-muted">
-                                      Unavailable
-                                    </div>
-                                  )}
-                                  <figcaption className="space-y-0.5 px-2 py-1.5 text-[10px] text-muted">
-                                    <p className="font-semibold text-text">
-                                      {snapshotEventLabel(snap.event_type)}
-                                    </p>
-                                    <p>@{formatSessionT(snap.session_t_ms)}</p>
-                                  </figcaption>
-                                </figure>
-                              ))}
-                            </div>
-                          </div>
-                        ) : null}
+                        <div>
+                          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
+                            Activity event log (host only)
+                          </h3>
+                          <ActivityEventLog rows={eventLog} loading={loadingDetail === row.user_id} />
+                        </div>
                       </div>
                     )}
                   </div>

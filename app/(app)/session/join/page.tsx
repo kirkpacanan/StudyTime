@@ -45,9 +45,9 @@ function JoinRoomForm() {
           <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10">
             <Hash className="h-6 w-6 text-primary" />
           </div>
-          <h1 className="text-xl font-bold text-text">Join a Study Room</h1>
+          <h1 className="text-xl font-bold text-text">Join an Activity Room</h1>
           <p className="text-sm text-muted">
-            Enter the 6-character code shared by your host to enter their library.
+            Enter the 6-character code from your host, or accept an email invite from the library lobby.
           </p>
         </div>
 

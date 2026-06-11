@@ -2,7 +2,7 @@
 
 import { LiveFocusGrid } from "@/components/focus-hub/LiveFocusGrid";
 import { useHostLibraryRoom } from "@/hooks/useHostLibraryRoom";
-import { getLibraryRoomById, getLibraryRoomRole } from "@/lib/library-rooms";
+import { getLibraryRoomById, getLibraryRoomRole, isActivityRoom } from "@/lib/library-rooms";
 import type { LibraryRoom } from "@/lib/library-rooms";
 import { motion } from "framer-motion";
 import { ArrowLeft, Monitor } from "lucide-react";
@@ -27,7 +27,7 @@ export default function LibraryRoomMonitorPage() {
         getLibraryRoomById(roomId),
         getLibraryRoomRole(roomId),
       ]);
-      if (!r || role !== "host") {
+      if (!r || role !== "host" || !isActivityRoom(r)) {
         router.replace(`/session/room/${roomId}`);
         return;
       }

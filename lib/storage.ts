@@ -14,6 +14,7 @@ import { isSupabaseEnabled } from "./supabase/config";
 import {
   fetchSessionsForUser as sbFetchSessions,
   fetchUserSettingsRaw as sbFetchSettingsRaw,
+  beginStudySessionRecord as sbBeginStudySession,
   insertStudySession as sbInsertSession,
   upsertUserSettings as sbUpsertSettings,
 } from "./storage-supabase";
@@ -136,6 +137,18 @@ export async function getSessionsForUser(
 ): Promise<StudySession[]> {
   if (isSupabaseEnabled()) return sbFetchSessions(userId);
   return localGetSessions(userId);
+}
+
+export async function beginStudySession(input: {
+  id: string;
+  userId: string;
+  startedAt: string;
+  roomId?: string | null;
+  activityId?: string | null;
+}): Promise<void> {
+  if (isSupabaseEnabled()) {
+    await sbBeginStudySession(input);
+  }
 }
 
 export async function appendSession(session: StudySession): Promise<void> {

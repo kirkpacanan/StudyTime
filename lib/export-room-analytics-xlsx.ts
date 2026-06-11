@@ -1,6 +1,7 @@
 import type ExcelJS from "exceljs";
 import type { LibraryRoomAnalyticsRow } from "@/lib/library-rooms";
-import type { RoomMemberSessionRow } from "@/lib/room-monitoring";
+import { snapshotEventLabel, type ActivityEventLogRow, type RoomMemberSessionRow } from "@/lib/room-monitoring";
+import { sortByLastFirstName } from "@/lib/sort-display-name";
 
 const ST = {
   primary: "FF4F86F7",
@@ -23,6 +24,7 @@ export type RoomAnalyticsExportInput = {
   exportedAt: string;
   members: LibraryRoomAnalyticsRow[];
   sessionsByUser: Record<string, RoomMemberSessionRow[]>;
+  eventLogByUser?: Record<string, ActivityEventLogRow[]>;
 };
 
 function borderThin(): Partial<ExcelJS.Borders> {
@@ -63,6 +65,7 @@ export async function exportRoomAnalyticsXlsx(input: RoomAnalyticsExportInput): 
 
   const summary = wb.addWorksheet("Member summary");
   summary.columns = [
+    { width: 6 },
     { width: 28 },
     { width: 12 },
     { width: 12 },
@@ -76,12 +79,13 @@ export async function exportRoomAnalyticsXlsx(input: RoomAnalyticsExportInput): 
   const title = summary.addRow([`Room analytics — ${input.roomName}`]);
   title.getCell(1).font = { name: "Calibri", size: 16, bold: true, color: { argb: ST.white } };
   title.getCell(1).fill = fill(ST.primary);
-  summary.mergeCells(1, 1, 1, 8);
+  summary.mergeCells(1, 1, 1, 9);
 
   summary.addRow([`Exported ${input.exportedAt}`]);
   summary.addRow([]);
 
   const header = summary.addRow([
+    "#",
     "Member (full name)",
     "Sessions",
     "Avg focus %",
@@ -97,12 +101,11 @@ export async function exportRoomAnalyticsXlsx(input: RoomAnalyticsExportInput): 
     cell.border = borderThin();
   });
 
-  const sorted = [...input.members].sort((a, b) =>
-    a.user_name.localeCompare(b.user_name),
-  );
+  const sorted = sortByLastFirstName(input.members, (m) => m.user_name);
 
   sorted.forEach((m, i) => {
     const row = summary.addRow([
+      i + 1,
       m.user_name,
       Number(m.session_count),
       Number(m.avg_focus),
@@ -115,7 +118,7 @@ export async function exportRoomAnalyticsXlsx(input: RoomAnalyticsExportInput): 
     row.eachCell((cell, col) => {
       cell.border = borderThin();
       cell.fill = fill(i % 2 === 0 ? ST.white : ST.stripe);
-      if (col === 3) applyFocusScoreStyle(cell, Number(m.avg_focus));
+      if (col === 4) applyFocusScoreStyle(cell, Number(m.avg_focus));
     });
   });
 
@@ -170,6 +173,53 @@ export async function exportRoomAnalyticsXlsx(input: RoomAnalyticsExportInput): 
         if (col === 4) applyFocusScoreStyle(cell, s.average_focus);
       });
       stripe++;
+    }
+  }
+
+  const eventSheet = wb.addWorksheet("Event log");
+  eventSheet.columns = [
+    { width: 6 },
+    { width: 24 },
+    { width: 22 },
+    { width: 20 },
+    { width: 12 },
+    { width: 10 },
+    { width: 10 },
+  ];
+
+  const eHeader = eventSheet.addRow([
+    "#",
+    "Member",
+    "Event type",
+    "Timestamp",
+    "Duration",
+    "Webcam",
+    "Screen",
+  ]);
+  eHeader.eachCell((cell) => {
+    cell.font = { name: "Calibri", size: 11, bold: true, color: { argb: ST.white } };
+    cell.fill = fill(ST.primary);
+    cell.border = borderThin();
+  });
+
+  let eventStripe = 0;
+  for (const m of sorted) {
+    const events = input.eventLogByUser?.[m.user_id] ?? [];
+    for (const ev of events) {
+      const row = eventSheet.addRow([
+        ev.event_index,
+        m.user_name,
+        snapshotEventLabel(ev.event_type as never),
+        new Date(ev.occurred_at).toLocaleString(),
+        ev.duration_ms != null ? `${Math.round(ev.duration_ms / 1000)}s` : "—",
+        ev.webcam_storage_path ? "yes" : "no",
+        ev.screen_storage_path ? "yes" : "no",
+      ]);
+      row.eachCell((cell) => {
+        cell.border = borderThin();
+        cell.fill = fill(eventStripe % 2 === 0 ? ST.white : ST.stripe);
+      });
+      eventStripe++;
     }
   }
 

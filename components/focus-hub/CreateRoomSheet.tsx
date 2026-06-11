@@ -69,7 +69,7 @@ export function CreateRoomSheet({ open, onClose, onCreated }: CreateRoomSheetPro
         description: description.trim() || undefined,
         category: category || undefined,
         participant_limit: seatCount,
-        is_private: isPrivate,
+        room_type: "activity",
       });
       onCreated(room);
       onClose();

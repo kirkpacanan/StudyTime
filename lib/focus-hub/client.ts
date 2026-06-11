@@ -1,12 +1,15 @@
 import { getSupabaseBrowser } from "@/lib/supabase/client";
 import type {
   CreateActivityInput,
+  UpdateActivityInput,
   CreateRoomInput,
   FocusHubActivity,
   FocusHubRoom,
   FocusHubSession,
   FocusHubSamplePoint,
+  PendingActivityRoomInvite,
   RoomAnalyticsRow,
+  RoomEmailInvite,
   RoomWithRole,
 } from "./types";
 
@@ -97,10 +100,24 @@ export async function createRoom(input: CreateRoomInput): Promise<FocusHubRoom> 
     p_description: input.description ?? null,
     p_category: input.category ?? null,
     p_participant_limit: input.participant_limit ?? 50,
-    p_is_private: input.is_private ?? false,
+    p_room_type: input.room_type ?? "activity",
   });
   if (error) throw new Error(error.message);
-  return data as FocusHubRoom;
+  const room = data as FocusHubRoom;
+
+  if (input.invite_emails?.length) {
+    for (const raw of input.invite_emails) {
+      const email = raw.trim().toLowerCase();
+      if (!email) continue;
+      try {
+        await inviteToActivityRoom(room.id, email);
+      } catch {
+        /* skip invalid duplicates */
+      }
+    }
+  }
+
+  return room;
 }
 
 export async function joinRoom(joinCode: string): Promise<FocusHubRoom> {
@@ -202,6 +219,65 @@ export async function leaveRoom(roomId: string): Promise<void> {
   await removeParticipant(roomId, user.id);
 }
 
+// ── Activity room email invites ─────────────────────────────────────────────
+
+export async function inviteToActivityRoom(
+  roomId: string,
+  email: string,
+): Promise<void> {
+  const sb = getSupabaseBrowser();
+  const { error } = await sb.rpc("invite_to_activity_room", {
+    p_room_id: roomId,
+    p_email: email.trim().toLowerCase(),
+  });
+  if (error) throw new Error(error.message);
+}
+
+export async function getRoomEmailInvites(roomId: string): Promise<RoomEmailInvite[]> {
+  const sb = getSupabaseBrowser();
+  const { data, error } = await sb.rpc("get_room_email_invites", {
+    p_room_id: roomId,
+  });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as RoomEmailInvite[];
+}
+
+export async function getMyActivityRoomInvites(): Promise<PendingActivityRoomInvite[]> {
+  const sb = getSupabaseBrowser();
+  const { data, error } = await sb.rpc("get_my_activity_room_invites");
+  if (error) {
+    if (error.message.includes("get_my_activity_room_invites")) return [];
+    throw new Error(error.message);
+  }
+  return (data ?? []) as PendingActivityRoomInvite[];
+}
+
+export async function hasPendingActivityRoomInvite(roomId: string): Promise<boolean> {
+  const sb = getSupabaseBrowser();
+  const { data, error } = await sb.rpc("has_pending_activity_room_invite", {
+    p_room_id: roomId,
+  });
+  if (error) return false;
+  return Boolean(data);
+}
+
+export async function acceptActivityRoomInvite(roomId: string): Promise<FocusHubRoom> {
+  const sb = getSupabaseBrowser();
+  const { data, error } = await sb.rpc("accept_activity_room_invite", {
+    p_room_id: roomId,
+  });
+  if (error) throw new Error(error.message);
+  return data as FocusHubRoom;
+}
+
+export async function revokeRoomEmailInvite(inviteId: string): Promise<void> {
+  const sb = getSupabaseBrowser();
+  const { error } = await sb.rpc("revoke_room_email_invite", {
+    p_invite_id: inviteId,
+  });
+  if (error) throw new Error(error.message);
+}
+
 // ── Activities ────────────────────────────────────────────────────────────────
 
 export async function getRoomActivities(roomId: string): Promise<FocusHubActivity[]> {
@@ -242,7 +318,32 @@ export async function createActivity(input: CreateActivityInput): Promise<FocusH
       due_at: input.due_at ?? null,
       duration_minutes: input.duration_minutes ?? null,
       focus_required: input.focus_required ?? true,
+      scheduled_start_at: input.scheduled_start_at ?? null,
+      scheduled_end_at: input.scheduled_end_at ?? null,
     })
+    .select()
+    .single();
+  if (error) throw new Error(error.message);
+  return data as FocusHubActivity;
+}
+
+export async function updateActivity(
+  activityId: string,
+  input: UpdateActivityInput,
+): Promise<FocusHubActivity> {
+  const sb = getSupabaseBrowser();
+  const patch: Record<string, unknown> = {};
+  if (input.title !== undefined) patch.title = input.title;
+  if (input.scheduled_start_at !== undefined) {
+    patch.scheduled_start_at = input.scheduled_start_at;
+  }
+  if (input.scheduled_end_at !== undefined) {
+    patch.scheduled_end_at = input.scheduled_end_at;
+  }
+  const { data, error } = await sb
+    .from("focus_hub_activities")
+    .update(patch)
+    .eq("id", activityId)
     .select()
     .single();
   if (error) throw new Error(error.message);

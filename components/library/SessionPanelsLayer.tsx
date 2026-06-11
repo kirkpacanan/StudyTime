@@ -4,6 +4,7 @@ import { memo, type MutableRefObject } from "react";
 import type { FocusFrameResult } from "@/lib/focus-detection";
 import { FocusCameraPanel } from "./FocusCameraPanel";
 import { FocusBreakdownPanel } from "./FocusBreakdownPanel";
+import { ActivitySessionPanel } from "./ActivitySessionPanel";
 import { SessionTimerPanel } from "./SessionTimerPanel";
 
 type LiveFocusFlags = {
@@ -36,6 +37,10 @@ type SessionPanelsLayerProps = {
   alarmRunning: boolean;
   /** `embedded` — session card inside app shell; `immersive` — fullscreen overlay. */
   layout?: "embedded" | "immersive";
+  /** Hide Pomodoro timer (activity rooms). */
+  showTimer?: boolean;
+  /** Activity room elapsed seconds (when showTimer is false). */
+  activityElapsedSec?: number;
 };
 
 const PANEL_TOP = {
@@ -73,18 +78,26 @@ export const SessionPanelsLayer = memo(function SessionPanelsLayer(props: Sessio
           eyesClosedMs={props.eyesClosedMs}
           alarmRunning={props.alarmRunning}
         />
-        <SessionTimerPanel
-          running={props.running}
-          paused={props.paused}
-          phase={props.phase}
-          remainingSec={props.remainingSec}
-          phaseTotalSec={props.phaseTotalSec}
-          focusCompleted={props.focusCompleted}
-          onPause={props.onPause}
-          onResume={props.onResume}
-          onEnd={props.onEnd}
-          endDisabled={props.endDisabled}
-        />
+        {props.showTimer !== false ? (
+          <SessionTimerPanel
+            running={props.running}
+            paused={props.paused}
+            phase={props.phase}
+            remainingSec={props.remainingSec}
+            phaseTotalSec={props.phaseTotalSec}
+            focusCompleted={props.focusCompleted}
+            onPause={props.onPause}
+            onResume={props.onResume}
+            onEnd={props.onEnd}
+            endDisabled={props.endDisabled}
+          />
+        ) : props.running ? (
+          <ActivitySessionPanel
+            elapsedSec={props.activityElapsedSec ?? 0}
+            onEnd={props.onEnd}
+            endDisabled={props.endDisabled}
+          />
+        ) : null}
       </div>
     </>
   );

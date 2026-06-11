@@ -37,7 +37,27 @@ export {
   getRoomMembers as getLibraryRoomMembers,
   removeParticipant as removeLibraryRoomParticipant,
   leaveRoom as leaveLibraryRoom,
+  inviteToActivityRoom,
+  getRoomEmailInvites,
+  getMyActivityRoomInvites,
+  hasPendingActivityRoomInvite,
+  acceptActivityRoomInvite,
+  revokeRoomEmailInvite,
 } from "@/lib/focus-hub/client";
+
+export type {
+  RoomType,
+  RoomEmailInvite,
+  PendingActivityRoomInvite,
+} from "@/lib/focus-hub/types";
+
+export function isActivityRoom(room: { room_type?: string }): boolean {
+  return room.room_type === "activity" || room.room_type == null;
+}
+
+export function isPublicStudyRoom(room: { room_type?: string }): boolean {
+  return room.room_type === "public_study";
+}
 
 export async function getLibraryRoomAnalytics(
   roomId: string,

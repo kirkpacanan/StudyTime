@@ -14,13 +14,25 @@ export type SessionEventType =
   | "head_down_long"
   | "eyes_closed_10s"
   | "alarm_started"
-  | "alarm_stopped";
+  | "alarm_stopped"
+  | "sleep_drowsy"
+  | "multiple_faces"
+  | "excessive_distraction"
+  | "tab_switch";
 
-export type MonitoringSnapshotEventType =
+/** Evidence-backed monitoring events (paired webcam + screen). */
+export type EvidenceEventType =
   | "session_start"
   | "phone_detected"
   | "off_screen"
-  | "drift";
+  | "drift"
+  | "sleep_drowsy"
+  | "multiple_faces"
+  | "excessive_distraction"
+  | "tab_switch";
+
+/** @deprecated Use EvidenceEventType */
+export type MonitoringSnapshotEventType = EvidenceEventType;
 
 export type SessionEvent = {
   /** Session-relative timestamp (ms) */
@@ -62,6 +74,8 @@ export type StudySession = {
   events?: SessionEvent[];
   /** Private library room when session was completed in a study room */
   roomId?: string | null;
+  /** Activity room session linked to host-scheduled activity */
+  activityId?: string | null;
 };
 
 export type FocusSensitivity = "strict" | "balanced" | "accessible";

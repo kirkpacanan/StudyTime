@@ -86,7 +86,7 @@ export async function getFaceLandmarker(): Promise<FaceLandmarkerInstance | null
         return FaceLandmarker.createFromOptions(fileset, {
           baseOptions: { modelAssetPath: FACE_LANDMARKER_MODEL },
           runningMode: "VIDEO",
-          numFaces: 1,
+          numFaces: 2,
           /** Lower thresholds help dim / low-res webcams still lock a face. */
           minFaceDetectionConfidence: 0.25,
           minFacePresenceConfidence: 0.25,
@@ -116,18 +116,24 @@ export function disposeFaceLandmarker(): void {
   landmarkerLoadPromise = null;
 }
 
+export type FaceLandmarkerDetectResult = {
+  frame: FaceLandmarkerFrame | null;
+  faceCount: number;
+};
+
 export function detectFaceLandmarks(
   landmarker: FaceLandmarkerInstance,
   video: HTMLVideoElement,
   timestampMs: number,
-): FaceLandmarkerFrame | null {
+): FaceLandmarkerDetectResult {
   const vw = video.videoWidth;
   const vh = video.videoHeight;
-  if (!vw || !vh || video.readyState < 2) return null;
+  if (!vw || !vh || video.readyState < 2) return { frame: null, faceCount: 0 };
 
   const result = landmarker.detectForVideo(video, timestampMs);
+  const faceCount = result.faceLandmarks?.length ?? 0;
   const landmarks = result.faceLandmarks?.[0];
-  if (!landmarks?.length) return null;
+  if (!landmarks?.length) return { frame: null, faceCount };
 
   const blendshapes = blendshapesToRecord(result.faceBlendshapes?.[0]?.categories);
   const matrixRaw = result.facialTransformationMatrixes?.[0]?.data;
@@ -143,13 +149,16 @@ export function detectFaceLandmarks(
   const landmarkDensity = landmarks.length >= 468 ? 0.08 : 0;
 
   return {
-    landmarks,
-    box: boxFromLandmarks(landmarks, vw, vh),
-    detectionConfidence: Math.min(
-      1,
-      Math.max(0.28, visibilityAvg * 0.82 + blendActive + landmarkDensity),
-    ),
-    blendshapes,
-    transformMatrix,
+    frame: {
+      landmarks,
+      box: boxFromLandmarks(landmarks, vw, vh),
+      detectionConfidence: Math.min(
+        1,
+        Math.max(0.28, visibilityAvg * 0.82 + blendActive + landmarkDensity),
+      ),
+      blendshapes,
+      transformMatrix,
+    },
+    faceCount,
   };
 }

@@ -10,6 +10,8 @@ import {
   Maximize2,
   Minimize2,
   Monitor,
+  Play,
+  UserPlus,
   Users,
   Wifi,
   WifiOff,
@@ -27,9 +29,14 @@ type SessionTopBarProps = {
   joinCode?: string;
   isHost?: boolean;
   isPrivateRoom?: boolean;
+  isActivityRoom?: boolean;
   isImmersive?: boolean;
   onToggleImmersive?: () => void;
   onChangeLibrary?: () => void;
+  onInviteParticipants?: () => void;
+  onManageActivity?: () => void;
+  /** Hide fullscreen control (e.g. while host activity panel is open). */
+  hideImmersiveToggle?: boolean;
 };
 
 export function SessionTopBar({
@@ -39,9 +46,13 @@ export function SessionTopBar({
   joinCode,
   isHost = false,
   isPrivateRoom = false,
+  isActivityRoom = false,
   isImmersive = false,
   onToggleImmersive,
   onChangeLibrary,
+  onInviteParticipants,
+  onManageActivity,
+  hideImmersiveToggle = false,
 }: SessionTopBarProps) {
   const { friends } = usePresence();
   const supabaseOn = isSupabaseEnabled();
@@ -118,7 +129,27 @@ export function SessionTopBar({
               {joinCode}
             </button>
           ) : null}
-          {isHost && roomId ? (
+          {isActivityRoom && isHost && onManageActivity ? (
+            <button
+              type="button"
+              onClick={onManageActivity}
+              className="pointer-events-auto inline-flex items-center gap-1 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-2 py-1 text-[10px] font-medium text-emerald-200 transition hover:bg-emerald-500/20"
+            >
+              <Play className="h-3 w-3" />
+              Activity
+            </button>
+          ) : null}
+          {isActivityRoom && isHost && onInviteParticipants ? (
+            <button
+              type="button"
+              onClick={onInviteParticipants}
+              className="pointer-events-auto inline-flex items-center gap-1 rounded-lg border border-violet-500/25 bg-violet-500/10 px-2 py-1 text-[10px] font-medium text-violet-200 transition hover:bg-violet-500/20"
+            >
+              <UserPlus className="h-3 w-3" />
+              Invite
+            </button>
+          ) : null}
+          {isActivityRoom && isHost && roomId ? (
             <>
               <Link
                 href={`/session/room/${roomId}/monitor`}
@@ -139,8 +170,8 @@ export function SessionTopBar({
         </div>
       </div>
 
-      <div className="pointer-events-auto flex shrink-0 items-center gap-2">
-        {onToggleImmersive ? (
+      {onToggleImmersive && !hideImmersiveToggle ? (
+        <div className="pointer-events-auto flex shrink-0 items-center gap-2">
           <button
             type="button"
             onClick={onToggleImmersive}
@@ -160,8 +191,8 @@ export function SessionTopBar({
               {isImmersive ? "Exit" : "Fullscreen"}
             </span>
           </button>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
     </header>
   );
 }

@@ -541,7 +541,9 @@ export function FocusCamera({
         if (!landmarker) return;
 
         faceVideoTsRef.current = Math.max(faceVideoTsRef.current + 1, nowMs);
-        let mpFrame = detectFaceLandmarks(landmarker, video, faceVideoTsRef.current);
+        const detectResult = detectFaceLandmarks(landmarker, video, faceVideoTsRef.current);
+        let mpFrame = detectResult.frame;
+        const faceCount = detectResult.faceCount;
         if (mpFrame) {
           lastMpFrameRef.current = mpFrame;
           lastMpFrameAtRef.current = nowMs;
@@ -798,7 +800,7 @@ export function FocusCamera({
         }
 
         const compat: FocusFrameResult & {
-          flags?: AttentionFrameResult["flags"];
+          flags?: AttentionFrameResult["flags"] & { faceCount?: number };
           durations?: AttentionFrameResult["durations"];
         } = {
           score: out.score,
@@ -809,7 +811,7 @@ export function FocusCamera({
           faceScore: out.faceScore,
           yaw: out.yaw,
           pitch: out.pitch,
-          flags: out.flags,
+          flags: { ...out.flags, faceCount },
           durations: out.durations,
           trackingConfidence: base.trackingConfidence,
           presenceQuality: base.presenceQuality,

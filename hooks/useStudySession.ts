@@ -56,10 +56,12 @@ export async function persistStudySession(
   focusMs: number,
   breakMs: number,
   roomId?: string | null,
+  sessionId?: string | null,
+  activityId?: string | null,
 ) {
   const stats = computeSessionStats(samples, focusMs, breakMs);
   const session = {
-    id: crypto.randomUUID(),
+    id: sessionId ?? crypto.randomUUID(),
     userId,
     startedAt,
     endedAt: new Date().toISOString(),
@@ -71,6 +73,7 @@ export async function persistStudySession(
     samples,
     events,
     roomId: roomId ?? null,
+    activityId: activityId ?? null,
   };
   await appendSession(session);
   return session;
