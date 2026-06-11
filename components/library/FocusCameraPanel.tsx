@@ -1,11 +1,10 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useState } from "react";
+import { useState, type MutableRefObject } from "react";
 import { Video, Minimize2, Maximize2, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import type { FocusFrameResult } from "@/lib/focus-detection";
-import type { FocusSensitivity } from "@/lib/types";
 import { LibraryIconButton, LibraryPanelHeader } from "./SessionChrome";
 
 const FocusCamera = dynamic(
@@ -27,11 +26,8 @@ type FocusCameraPanelProps = {
   enabled: boolean;
   active: boolean;
   phoneDetectionEnabled: boolean;
-  focusThreshold: number;
-  distractionThreshold: number;
-  focusSensitivity?: FocusSensitivity;
-  deskWorkBias?: boolean;
   onSample: (sample: FocusFrameResult) => void;
+  frameCaptureRef?: MutableRefObject<(() => Promise<Blob | null>) | null>;
   onClose?: () => void;
 };
 
@@ -39,11 +35,8 @@ export function FocusCameraPanel({
   enabled,
   active,
   phoneDetectionEnabled,
-  focusThreshold,
-  distractionThreshold,
-  focusSensitivity,
-  deskWorkBias,
   onSample,
+  frameCaptureRef,
   onClose,
 }: FocusCameraPanelProps) {
   const [minimized, setMinimized] = useState(false);
@@ -89,7 +82,6 @@ export function FocusCameraPanel({
         }
       />
 
-      {/* Keep camera mounted when minimized — only hide the preview so tracking continues. */}
       <div
         className={cn(
           minimized
@@ -102,11 +94,8 @@ export function FocusCameraPanel({
           enabled={enabled}
           active={active}
           phoneDetectionEnabled={phoneDetectionEnabled}
-          focusThreshold={focusThreshold}
-          distractionThreshold={distractionThreshold}
-          focusSensitivity={focusSensitivity}
-          deskWorkBias={deskWorkBias}
           onSample={onSample}
+          frameCaptureRef={frameCaptureRef}
           variant="glass"
         />
       </div>

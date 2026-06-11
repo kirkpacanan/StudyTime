@@ -2,45 +2,36 @@
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { PrivacySettingsCard } from "@/components/social/PrivacySettingsCard";
 import { useAuth } from "@/hooks/useAuth";
-import { getSettings, saveSettings } from "@/lib/storage";
-import { DEFAULT_SETTINGS, type FocusSensitivity, type UserSettings } from "@/lib/types";
+import { getUserPreferences, saveUserPreferences } from "@/lib/storage";
+import { DEFAULT_USER_PREFERENCES, type UserPreferences } from "@/lib/types";
 import { useEffect, useState } from "react";
 
 export default function SettingsPage() {
   const { user } = useAuth();
-  const [form, setForm] = useState<UserSettings>(DEFAULT_SETTINGS);
+  const [form, setForm] = useState<UserPreferences>(DEFAULT_USER_PREFERENCES);
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
-    void getSettings(user.id).then((s) => {
-      if (!cancelled) setForm(s);
+    void getUserPreferences(user.id).then((prefs) => {
+      if (!cancelled) setForm(prefs);
     });
     return () => {
       cancelled = true;
     };
   }, [user]);
 
-  function update<K extends keyof UserSettings>(key: K, value: UserSettings[K]) {
+  function update<K extends keyof UserPreferences>(key: K, value: UserPreferences[K]) {
     setForm((f) => ({ ...f, [key]: value }));
     setSaved(false);
   }
 
   async function save() {
     if (!user) return;
-    await saveSettings(user.id, {
-      ...form,
-      focusMinutes: Math.max(5, Math.min(120, form.focusMinutes)),
-      shortBreakMinutes: Math.max(1, Math.min(60, form.shortBreakMinutes)),
-      longBreakMinutes: Math.max(1, Math.min(60, form.longBreakMinutes)),
-      longBreakEvery: Math.max(1, Math.min(10, form.longBreakEvery)),
-      focusThreshold: Math.max(50, Math.min(95, form.focusThreshold)),
-      distractionThreshold: Math.max(5, Math.min(60, form.distractionThreshold)),
-    });
+    await saveUserPreferences(user.id, form);
     setSaved(true);
   }
 
@@ -61,114 +52,10 @@ export default function SettingsPage() {
           Settings
         </h1>
         <p className="mt-1 text-sm text-muted">
-          Tune Pomodoro lengths, focus thresholds, and camera behavior.
+          Manage device preferences and privacy. Focus scoring is standardized for
+          fair leaderboard rankings.
         </p>
       </div>
-
-      <Card className="space-y-5">
-        <h2 className="text-sm font-semibold text-text">Pomodoro</h2>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <label className="text-xs font-medium text-muted">
-            Focus length (minutes)
-            <Input
-              type="number"
-              className="mt-1"
-              value={form.focusMinutes}
-              onChange={(e) =>
-                update("focusMinutes", Number(e.target.value) || 25)
-              }
-            />
-          </label>
-          <label className="text-xs font-medium text-muted">
-            Short break (minutes)
-            <Input
-              type="number"
-              className="mt-1"
-              value={form.shortBreakMinutes}
-              onChange={(e) =>
-                update("shortBreakMinutes", Number(e.target.value) || 5)
-              }
-            />
-          </label>
-          <label className="text-xs font-medium text-muted">
-            Long break (minutes)
-            <Input
-              type="number"
-              className="mt-1"
-              value={form.longBreakMinutes}
-              onChange={(e) =>
-                update("longBreakMinutes", Number(e.target.value) || 15)
-              }
-            />
-          </label>
-          <label className="text-xs font-medium text-muted">
-            Long break every N focus blocks
-            <Input
-              type="number"
-              className="mt-1"
-              value={form.longBreakEvery}
-              onChange={(e) =>
-                update("longBreakEvery", Number(e.target.value) || 4)
-              }
-            />
-          </label>
-        </div>
-      </Card>
-
-      <Card className="space-y-5">
-        <h2 className="text-sm font-semibold text-text">Focus scoring</h2>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <label className="text-xs font-medium text-muted">
-            Focused threshold (0–100)
-            <Input
-              type="number"
-              className="mt-1"
-              value={form.focusThreshold}
-              onChange={(e) =>
-                update("focusThreshold", Number(e.target.value) || 70)
-              }
-            />
-          </label>
-          <label className="text-xs font-medium text-muted">
-            Distracted threshold (0–100)
-            <Input
-              type="number"
-              className="mt-1"
-              value={form.distractionThreshold}
-              onChange={(e) =>
-                update("distractionThreshold", Number(e.target.value) || 40)
-              }
-            />
-          </label>
-          <label className="text-xs font-medium text-muted sm:col-span-2">
-            Sensitivity preset
-            <select
-              className="mt-1 w-full rounded-md border border-primary/20 bg-surface px-3 py-2 text-sm text-text"
-              value={form.focusSensitivity}
-              onChange={(e) =>
-                update("focusSensitivity", e.target.value as FocusSensitivity)
-              }
-            >
-              <option value="strict">Strict — tighter gaze and head-down penalties</option>
-              <option value="balanced">Balanced — default study behavior</option>
-              <option value="accessible">Accessible — softer penalties, more desk-work tolerance</option>
-            </select>
-          </label>
-        </div>
-        <label className="flex items-center gap-3 text-sm text-text">
-          <input
-            type="checkbox"
-            checked={form.deskWorkBias}
-            onChange={(e) => update("deskWorkBias", e.target.checked)}
-            className="h-4 w-4 rounded border-primary/30 text-primary focus:ring-primary"
-          />
-          I often look at desk notes while studying (reduces false distractions)
-        </label>
-        <p className="text-xs text-muted">
-          Higher thresholds are stricter. Keep distracted below focused. Accessible mode
-          degrades scores gently when eye tracking is limited instead of marking you distracted.
-        </p>
-      </Card>
 
       <Card className="space-y-5">
         <h2 className="text-sm font-semibold text-text">Devices & nudges</h2>

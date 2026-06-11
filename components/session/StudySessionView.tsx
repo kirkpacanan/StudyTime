@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
-import { Clock, BookOpen, ChevronRight, Sparkles, Check, ArrowLeft, X, AlertTriangle, LogOut } from "lucide-react";
+import { Clock, BookOpen, ChevronRight, Sparkles, ArrowLeft, X, AlertTriangle, LogOut } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import { useSessionLive } from "@/contexts/session-live-context";
@@ -13,8 +13,24 @@ import { computeSessionStats, persistStudySession } from "@/hooks/useStudySessio
 import type { SessionCelebrationPayload } from "@/lib/gamification/session-celebration";
 import { computeSessionCelebration } from "@/lib/gamification/session-celebration";
 import type { FocusFrameResult } from "@/lib/focus-detection";
-import { getSettings } from "@/lib/storage";
-import type { FocusSample, SessionEvent, UserSettings } from "@/lib/types";
+import {
+  getSessionTimerSettings,
+  getUserPreferences,
+  saveSessionTimerSettings,
+} from "@/lib/storage";
+import type {
+  FocusSample,
+  MonitoringSnapshotEventType,
+  SessionEvent,
+  SessionTimerSettings,
+  UserPreferences,
+} from "@/lib/types";
+import {
+  uploadMonitoringSnapshots,
+  type PendingMonitoringSnapshot,
+} from "@/lib/room-monitoring";
+import { DEFAULT_SESSION_TIMER_SETTINGS } from "@/lib/types";
+import { SessionTimerConfig } from "@/components/session/SessionTimerConfig";
 import { cn } from "@/lib/cn";
 import { SessionEnterOverlay } from "@/components/library/SessionEnterOverlay";
 import { SessionPanelsLayer } from "@/components/library/SessionPanelsLayer";
@@ -182,25 +198,23 @@ export function LibraryLoadingScreen({ embedded = false }: { embedded?: boolean 
   );
 }
 
-const DURATION_OPTIONS = [
-  { label: "25 min", value: 25 },
-  { label: "50 min", value: 50 },
-  { label: "1 hour", value: 60 },
-  { label: "2 hours", value: 120 },
-];
-
 export type StudySessionPageProps = {
   libraryRoomId?: string;
   libraryRoomName?: string;
   libraryRoomRole?: "host" | "participant";
+  libraryRoomParticipantLimit?: number;
   joinCode?: string;
+  /** Participant agreed to host monitoring snapshots in this room. */
+  monitoringConsented?: boolean;
 };
 
 export function StudySessionView({
   libraryRoomId,
   libraryRoomName = "Main Library",
   libraryRoomRole,
+  libraryRoomParticipantLimit,
   joinCode,
+  monitoringConsented = false,
 }: StudySessionPageProps = {}) {
   const presenceRoomId = libraryRoomId ?? "main";
   const isPrivateRoom = Boolean(libraryRoomId);
@@ -212,16 +226,16 @@ export function StudySessionView({
   const { setLive, resetLive, pendingNavDestination, clearPendingNav } = useSessionLive();
   const { refresh: refreshProgression } = useProgression();
 
-  // Settings
-  const [settings, setSettings] = useState<UserSettings | null>(null);
+  const [preferences, setPreferences] = useState<UserPreferences | null>(null);
+  const [timerSettings, setTimerSettings] = useState<SessionTimerSettings>(
+    DEFAULT_SESSION_TIMER_SETTINGS,
+  );
 
   // Flow state
   const [flowState, setFlowState] = useState<LibraryFlowState>(
     isPrivateRoom ? "entering" : "library_select",
   );
   const [selectedSeatId, setSelectedSeatId] = useState<string | null>(null);
-  const [selectedDuration, setSelectedDuration] = useState<number>(25);
-  const [customDuration, setCustomDuration] = useState<string>("");
 
   // Avatar
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
@@ -243,7 +257,16 @@ export function StudySessionView({
     lookingAwayLong: false,
     headDownLong: false,
     alarmRunning: false,
+    away: false,
   });
+  const frameCaptureRef = useRef<(() => Promise<Blob | null>) | null>(null);
+  const pendingSnapshotsRef = useRef<PendingMonitoringSnapshot[]>([]);
+  const snapshotThrottleRef = useRef<Record<string, number>>({});
+  const monitoringActive =
+    isPrivateRoom &&
+    libraryRoomRole === "participant" &&
+    monitoringConsented &&
+    Boolean(libraryRoomId);
   const sessionStartedAtRef = useRef<string | null>(null);
   const focusMsRef = useRef(0);
   const breakMsRef = useRef(0);
@@ -278,11 +301,18 @@ export function StudySessionView({
   const [exitDialogOpen, setExitDialogOpen] = useState(false);
   const [pendingExitDest, setPendingExitDest] = useState<string | null>(null);
 
-  // Load settings
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
-    void getSettings(user.id).then((s) => { if (!cancelled) setSettings(s); });
+    void Promise.all([
+      getUserPreferences(user.id),
+      getSessionTimerSettings(user.id),
+    ]).then(([prefs, timer]) => {
+      if (!cancelled) {
+        setPreferences(prefs);
+        setTimerSettings(timer);
+      }
+    });
     return () => { cancelled = true; };
   }, [user]);
 
@@ -359,17 +389,12 @@ export function StudySessionView({
     return () => window.removeEventListener("keydown", onKey);
   }, [summaryOpen, isImmersive, exitImmersive]);
 
-  // Derived settings
-  const focusSec = (settings?.focusMinutes ?? 25) * 60;
-  const shortBreakSec = (settings?.shortBreakMinutes ?? 5) * 60;
-  const longBreakSec = (settings?.longBreakMinutes ?? 15) * 60;
-  const longEvery = settings?.longBreakEvery ?? 4;
-  const focusThreshold = settings?.focusThreshold ?? 70;
-  const distractionThreshold = settings?.distractionThreshold ?? 40;
-  const focusSensitivity = settings?.focusSensitivity ?? "balanced";
-  const deskWorkBias = settings?.deskWorkBias ?? true;
-  const webcamEnabled = settings?.webcamEnabled ?? true;
-  const phoneDetectionEnabled = settings?.phoneDetectionEnabled ?? true;
+  const focusSec = timerSettings.focusMinutes * 60;
+  const shortBreakSec = timerSettings.shortBreakMinutes * 60;
+  const longBreakSec = timerSettings.longBreakMinutes * 60;
+  const longEvery = timerSettings.longBreakEvery;
+  const webcamEnabled = preferences?.webcamEnabled ?? true;
+  const phoneDetectionEnabled = preferences?.phoneDetectionEnabled ?? true;
 
   const completeCurrentPhaseRef = useRef<() => void>(() => {});
   const completeCurrentPhase = useCallback(() => {
@@ -404,7 +429,7 @@ export function StudySessionView({
     const breakMs = breakMsRef.current;
     const blocks = focusCompletedRef.current;
     const endedAt = new Date().toISOString();
-    const stats = computeSessionStats(samples, focusThreshold, focusMs, breakMs);
+    const stats = computeSessionStats(samples, focusMs, breakMs);
     const shouldPersist = Boolean(user && started && samples.length > 0);
 
     setRunning(false);
@@ -454,9 +479,18 @@ export function StudySessionView({
           events,
           focusMs,
           breakMs,
-          focusThreshold,
           libraryRoomId ?? null,
         );
+        if (monitoringActive && libraryRoomId) {
+          const snaps = [...pendingSnapshotsRef.current];
+          pendingSnapshotsRef.current = [];
+          void uploadMonitoringSnapshots(
+            libraryRoomId,
+            userSnapshot.id,
+            session.id,
+            snaps,
+          );
+        }
         setSummary((prev) => (prev ? { ...prev, saved: true } : prev));
         let celebration: SessionCelebrationPayload | null = null;
         try {
@@ -481,7 +515,7 @@ export function StudySessionView({
         );
       }
     })();
-  }, [focusThreshold, libraryRoomId, resetLive, user, refreshProgression]);
+  }, [libraryRoomId, resetLive, user, refreshProgression]);
 
   // ── Exit-guard: watch for navigation requests from Sidebar / Topbar ─────────
   useEffect(() => {
@@ -581,6 +615,22 @@ export function StudySessionView({
   const lastUiUpdateMsRef = useRef<number>(0);
   const UI_THROTTLE_MS = 900;
 
+  const queueMonitoringSnapshot = useCallback(
+    async (eventType: MonitoringSnapshotEventType, sessionTMs: number) => {
+      if (!monitoringActive) return;
+      const now = Date.now();
+      const last = snapshotThrottleRef.current[eventType] ?? 0;
+      if (now - last < 45_000) return;
+      const capture = frameCaptureRef.current;
+      if (!capture) return;
+      const blob = await capture();
+      if (!blob) return;
+      snapshotThrottleRef.current[eventType] = now;
+      pendingSnapshotsRef.current.push({ eventType, sessionTMs, blob });
+    },
+    [monitoringActive],
+  );
+
   // Focus sample handler
   const onSample = useCallback((sample: FocusFrameResult) => {
     const flags = (sample as FocusFrameResult & {
@@ -617,11 +667,23 @@ export function StudySessionView({
     const t = sessionMsRef.current;
     const prev = prevFlagsRef.current;
     const phoneNow = sampleFlags?.phoneDetected === true;
+    const awayNow = sample.state === "away";
     const eyesClosed10sNow = (durations?.eyesClosedMs ?? 0) >= 10_000;
     const lookingAwayLongNow = (durations?.lookingAwayMs ?? 0) >= 6_000;
     const headDownLongNow = (durations?.headDownMs ?? 0) >= 4_500;
-    if (phoneNow && !prev.phoneDetected) eventsRef.current.push({ t, type: "phone_detected" });
-    if (lookingAwayLongNow && !prev.lookingAwayLong) eventsRef.current.push({ t, type: "look_away_long" });
+    if (phoneNow && !prev.phoneDetected) {
+      eventsRef.current.push({ t, type: "phone_detected" });
+      void queueMonitoringSnapshot("phone_detected", t);
+    }
+    if (lookingAwayLongNow && !prev.lookingAwayLong) {
+      eventsRef.current.push({ t, type: "look_away_long" });
+      eventsRef.current.push({ t, type: "drift" });
+      void queueMonitoringSnapshot("drift", t);
+    }
+    if (awayNow && !prev.away) {
+      eventsRef.current.push({ t, type: "off_screen" });
+      void queueMonitoringSnapshot("off_screen", t);
+    }
     if (headDownLongNow && !prev.headDownLong) eventsRef.current.push({ t, type: "head_down_long" });
     if (eyesClosed10sNow && !prev.eyesClosed10s) eventsRef.current.push({ t, type: "eyes_closed_10s" });
     const shouldAlarm = eyesClosed10sNow && sample.state === "sleeping";
@@ -629,12 +691,19 @@ export function StudySessionView({
     if (shouldAlarm && alarm && !alarm.isRunning()) { alarm.start(); eventsRef.current.push({ t, type: "alarm_started" }); }
     else if (!shouldAlarm && alarm && alarm.isRunning()) { alarm.stop(); eventsRef.current.push({ t, type: "alarm_stopped" }); }
     setAlarmRunning(alarm?.isRunning() ?? false);
-    prevFlagsRef.current = { phoneDetected: phoneNow, eyesClosed10s: eyesClosed10sNow, lookingAwayLong: lookingAwayLongNow, headDownLong: headDownLongNow, alarmRunning: alarm?.isRunning() ?? false };
+    prevFlagsRef.current = {
+      phoneDetected: phoneNow,
+      eyesClosed10s: eyesClosed10sNow,
+      lookingAwayLong: lookingAwayLongNow,
+      headDownLong: headDownLongNow,
+      alarmRunning: alarm?.isRunning() ?? false,
+      away: awayNow,
+    };
     samplesRef.current.push({
       t: sessionMsRef.current, score: sample.score, state: sample.state,
       flags: sampleFlags ? { phoneDetected: sampleFlags.phoneDetected, lookingAway: sampleFlags.lookingAway, headDown: sampleFlags.headDown, eyesClosed: sampleFlags.eyesClosed, drowsy: (sampleFlags as { drowsy?: boolean }).drowsy, hasFace: sampleFlags.hasFace } : undefined,
     });
-  }, [running, paused]);
+  }, [running, paused, queueMonitoringSnapshot]);
 
   // Alarm cleanup
   useEffect(() => {
@@ -644,26 +713,42 @@ export function StudySessionView({
 
   const startSession = useCallback(() => {
     if (!user) return;
+    void saveSessionTimerSettings(user.id, timerSettings);
     if (!alarmRef.current) alarmRef.current = createAlarmController();
     alarmRef.current.prime();
     samplesRef.current = []; eventsRef.current = [];
+    pendingSnapshotsRef.current = [];
+    snapshotThrottleRef.current = {};
     focusMsRef.current = 0; breakMsRef.current = 0; sessionMsRef.current = 0;
     setFocusCompleted(0);
-    prevFlagsRef.current = { phoneDetected: false, eyesClosed10s: false, lookingAwayLong: false, headDownLong: false, alarmRunning: false };
+    prevFlagsRef.current = {
+      phoneDetected: false,
+      eyesClosed10s: false,
+      lookingAwayLong: false,
+      headDownLong: false,
+      alarmRunning: false,
+      away: false,
+    };
     sessionStartedAtRef.current = new Date().toISOString();
+    eventsRef.current.push({ t: 0, type: "session_start" });
     phaseRef.current = "focus"; setPhase("focus");
-    setRemainingSec(selectedDuration * 60);
+    setRemainingSec(focusSec);
     setRunning(true);
     setPaused(false);
     setFlowState("studying");
-  }, [user, selectedDuration]);
+    if (monitoringActive) {
+      window.setTimeout(() => {
+        void queueMonitoringSnapshot("session_start", 0);
+      }, 1800);
+    }
+  }, [user, focusSec, timerSettings, monitoringActive, queueMonitoringSnapshot]);
 
   // Phase progress for timer ring
   const phaseTotalSec = useMemo(() => {
-    if (phase === "focus") return selectedDuration * 60;
+    if (phase === "focus") return focusSec;
     const isLong = focusCompleted > 0 && focusCompleted % longEvery === 0;
     return isLong ? longBreakSec : shortBreakSec;
-  }, [phase, selectedDuration, shortBreakSec, longBreakSec, longEvery, focusCompleted]);
+  }, [phase, focusSec, shortBreakSec, longBreakSec, longEvery, focusCompleted]);
 
   // Library presence
   const libraryStatus: PresenceStatus | "completed" =
@@ -769,6 +854,7 @@ export function StudySessionView({
           onSeatClick={handleSeatClick}
           userName={user.name ?? "You"}
           userId={user.id}
+          participantLimit={libraryRoomParticipantLimit}
         />
       </motion.div>
 
@@ -890,98 +976,63 @@ export function StudySessionView({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="absolute inset-0 z-[200] isolate flex items-center justify-center bg-black/50 px-4 pt-16 backdrop-blur-md"
+            className="absolute inset-0 z-[200] isolate flex items-center justify-center overflow-y-auto bg-black/55 px-4 py-6 backdrop-blur-sm"
           >
             <motion.div
-              initial={{ opacity: 0, scale: 0.96, y: 8 }}
+              initial={{ opacity: 0, scale: 0.98, y: 12 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.96, y: 8 }}
-              transition={{ duration: 0.2 }}
-              className="relative w-full max-w-md"
+              exit={{ opacity: 0, scale: 0.98, y: 8 }}
+              transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+              className="game-lite-modal relative my-auto w-full max-w-xl overflow-visible px-5 pb-5 pt-8"
             >
-              <div className="library-glass-modal">
-                <LibraryPanelHeader
-                  icon={<Clock className="h-4 w-4 shrink-0 text-sky-300" />}
-                  title="Choose study duration"
-                  subtitle={
-                    selectedSeat
-                      ? `Seated at ${selectedSeat.label}`
-                      : "Your avatar is seated and ready"
-                  }
-                  actions={
-                    <LibraryIconButton
-                      label="Back to seat selection"
-                      onClick={() => {
-                        setFlowState("seat_select");
-                        setSelectedSeatId(null);
-                      }}
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </LibraryIconButton>
+              <div className="game-lite-ribbon">Set up Pomodoro</div>
+              <button
+                type="button"
+                aria-label="Back to seat selection"
+                onClick={() => {
+                  setFlowState("seat_select");
+                  setSelectedSeatId(null);
+                }}
+                className="absolute right-3 top-3 z-10 rounded-lg p-1.5 text-sky-200/60 transition hover:bg-white/10 hover:text-white"
+              >
+                <X className="h-4 w-4" />
+              </button>
+
+              <p className="mt-1 text-center text-xs text-sky-200/60">
+                {selectedSeat
+                  ? `Seated at ${selectedSeat.label}`
+                  : "Your avatar is seated and ready"}
+              </p>
+
+              <div className="mt-4">
+                <SessionTimerConfig
+                  timer={timerSettings}
+                  onTimerChange={(patch) =>
+                    setTimerSettings((prev) => ({ ...prev, ...patch }))
                   }
                 />
+              </div>
 
-                <div className="p-6">
-                  <p className="library-text-label mb-2.5">Quick picks</p>
-                  <div className="mb-5 grid grid-cols-2 gap-2.5">
-                    {DURATION_OPTIONS.map((opt) => {
-                      const selected = selectedDuration === opt.value;
-                      return (
-                        <button
-                          key={opt.value}
-                          onClick={() => setSelectedDuration(opt.value)}
-                          className={cn(
-                            "relative rounded-xl border py-3.5 text-sm font-semibold transition-all",
-                            selected
-                              ? "border-sky-400/60 bg-sky-500/15 text-sky-100 shadow-[0_0_20px_rgba(56,189,248,0.12)]"
-                              : "border-white/10 bg-white/[0.04] text-slate-200 hover:border-white/20 hover:bg-white/[0.08] hover:text-white",
-                          )}
-                        >
-                          {selected && (
-                            <Check className="absolute right-2.5 top-2.5 h-3.5 w-3.5 text-sky-400" />
-                          )}
-                          {opt.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {/* Custom duration */}
-                  <p className="library-text-label mb-2">Custom length</p>
-                  <div className="mb-6">
-                    <input
-                      type="number"
-                      min={5}
-                      max={480}
-                      value={customDuration}
-                      onChange={(e) => {
-                        setCustomDuration(e.target.value);
-                        const val = parseInt(e.target.value, 10);
-                        if (!isNaN(val) && val >= 5) setSelectedDuration(val);
-                      }}
-                      placeholder="Enter minutes (e.g. 90)"
-                      className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2.5 text-sm text-slate-100 placeholder-slate-400 outline-none transition focus:border-sky-500/50 focus:ring-2 focus:ring-sky-500/20"
-                    />
-                  </div>
-
-                  <div className="flex gap-3">
-                    <button
-                      onClick={() => { setFlowState("seat_select"); setSelectedSeatId(null); }}
-                      className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] py-3 text-sm font-medium text-slate-200 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-white"
-                    >
-                      <ArrowLeft className="h-4 w-4" />
-                      Change seat
-                    </button>
-                    <button
-                      onClick={startSession}
-                      className="flex flex-[1.4] items-center justify-center gap-2 rounded-xl bg-sky-600 py-3 text-sm font-semibold text-white shadow-lg shadow-sky-900/40 transition hover:bg-sky-500"
-                    >
-                      <Sparkles className="h-4 w-4" />
-                      Start {selectedDuration}m session
-                      <ChevronRight className="h-4 w-4" />
-                    </button>
-                  </div>
-                </div>
+              <div className="mt-4 flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFlowState("seat_select");
+                    setSelectedSeatId(null);
+                  }}
+                  className="game-lite-btn-ghost flex-1"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" />
+                  Seat
+                </button>
+                <button
+                  type="button"
+                  onClick={startSession}
+                  className="game-lite-btn-gold flex-[1.55]"
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                  Play {timerSettings.focusMinutes}m
+                </button>
               </div>
             </motion.div>
           </motion.div>
@@ -1002,11 +1053,8 @@ export function StudySessionView({
             webcamEnabled={webcamEnabled}
             active={running && !paused && phase === "focus"}
             phoneDetectionEnabled={phoneDetectionEnabled}
-            focusThreshold={focusThreshold}
-            distractionThreshold={distractionThreshold}
-            focusSensitivity={focusSensitivity}
-            deskWorkBias={deskWorkBias}
             onSample={onSample}
+            frameCaptureRef={monitoringActive ? frameCaptureRef : undefined}
             running={running}
             paused={paused}
             phase={phase}

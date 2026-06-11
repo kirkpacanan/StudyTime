@@ -112,6 +112,53 @@ export async function joinRoom(joinCode: string): Promise<FocusHubRoom> {
   return data as FocusHubRoom;
 }
 
+export type PublicLibraryRoomRow = {
+  id: string;
+  name: string;
+  description: string | null;
+  category: string | null;
+  participant_limit: number;
+  member_count: number;
+  created_at: string;
+};
+
+function isMissingRpcError(message: string, rpcName: string): boolean {
+  return (
+    message.includes(rpcName) ||
+    message.includes("schema cache") ||
+    message.includes("PGRST202")
+  );
+}
+
+export async function getPublicRooms(): Promise<PublicLibraryRoomRow[]> {
+  const sb = getSupabaseBrowser();
+  const { data, error } = await sb.rpc("list_public_library_rooms");
+  if (error) {
+    if (isMissingRpcError(error.message, "list_public_library_rooms")) {
+      console.warn("[library-rooms] list_public_library_rooms not available:", error.message);
+      return [];
+    }
+    throw new Error(error.message);
+  }
+  return (data ?? []) as PublicLibraryRoomRow[];
+}
+
+export async function joinPublicRoom(roomId: string): Promise<FocusHubRoom> {
+  const sb = getSupabaseBrowser();
+  const { data, error } = await sb.rpc("join_public_library_room", {
+    p_room_id: roomId,
+  });
+  if (error) {
+    if (isMissingRpcError(error.message, "join_public_library_room")) {
+      throw new Error(
+        "Public room join is not available yet. Apply the latest database migration and refresh.",
+      );
+    }
+    throw new Error(error.message);
+  }
+  return data as FocusHubRoom;
+}
+
 export async function archiveRoom(roomId: string): Promise<void> {
   const sb = getSupabaseBrowser();
   const { error } = await sb

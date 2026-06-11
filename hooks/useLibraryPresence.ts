@@ -70,9 +70,10 @@ export function useLibraryPresence(opts: {
   // Track the last-broadcast score so we only send when it moves ≥5 points,
   // preventing a Supabase broadcast on every ~1 Hz UI update.
   const lastBroadcastScoreRef = useRef<number>(-1);
+  const subscribedRef = useRef(false);
 
   const broadcastSelf = useCallback((force = false) => {
-    if (!channelRef.current || !optsRef.current.userId) return;
+    if (!channelRef.current || !optsRef.current.userId || !subscribedRef.current) return;
     const score = optsRef.current.focusScore;
     // Skip the network round-trip when only the score changed by < 5 points —
     // this avoids a broadcast on every ~1 Hz sample tick.
@@ -141,6 +142,7 @@ export function useLibraryPresence(opts: {
         });
       })
       .subscribe((status) => {
+        subscribedRef.current = status === "SUBSCRIBED";
         if (status === "SUBSCRIBED") {
           broadcastSelf(true);
           void getLibraryRoomPresence(roomId).then((rows) => {
@@ -187,13 +189,10 @@ export function useLibraryPresence(opts: {
     return () => {
       window.clearInterval(heartbeatId);
       window.clearInterval(pruneId);
-      // Announce departure.
+      subscribedRef.current = false;
+      // Announce departure (httpSend when the socket is already torn down).
       if (opts.userId) {
-        void channel.send({
-          type: "broadcast",
-          event: "peer_leave",
-          payload: { userId: opts.userId },
-        });
+        void channel.httpSend("peer_leave", { userId: opts.userId });
       }
       void supabase.removeChannel(channel);
       channelRef.current = null;

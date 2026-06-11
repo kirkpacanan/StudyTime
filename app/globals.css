@@ -265,6 +265,523 @@ body {
     @apply text-[10px] font-semibold uppercase tracking-wide text-slate-400;
   }
 
+  /* Game-lite — softer game UI (lobby, secondary screens) */
+  .game-lite-modal {
+    position: relative;
+    border-radius: 1.15rem;
+    border: 2px solid #1e3a5c;
+    background: linear-gradient(180deg, #1a2f4a 0%, #121f33 100%);
+    box-shadow:
+      0 1px 0 rgba(186, 230, 253, 0.12) inset,
+      0 3px 0 #0a1628,
+      0 12px 32px -10px rgba(0, 0, 0, 0.55);
+  }
+
+  /* Right drawer — same surface as modal, no position (parent is fixed) */
+  .game-lite-sheet {
+    border: 2px solid #1e3a5c;
+    border-right: 0;
+    background: linear-gradient(180deg, #1a2f4a 0%, #121f33 100%);
+    box-shadow:
+      0 1px 0 rgba(186, 230, 253, 0.12) inset,
+      0 3px 0 #0a1628,
+      -12px 0 32px -10px rgba(0, 0, 0, 0.55);
+  }
+
+  .game-lite-ribbon {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    z-index: 2;
+    width: min(72%, 14rem);
+    transform: translate(-50%, -50%);
+    border-radius: 9999px;
+    border: 2px solid #0369a1;
+    background: linear-gradient(180deg, #5ec8f8 0%, #0ea5e9 100%);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.4) inset,
+      0 2px 0 #0369a1;
+    padding: 0.45rem 1.25rem;
+    text-align: center;
+    font-size: 0.62rem;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #fff;
+    text-shadow: 0 1px 0 rgba(3, 105, 161, 0.6);
+  }
+
+  /* Lobby modal — room for overlapping ribbon, scroll inside body */
+  .game-lite-modal-lobby {
+    display: flex;
+    max-height: min(90%, 34rem);
+    flex-direction: column;
+    overflow: visible;
+    padding-top: 1.75rem;
+  }
+
+  .game-lite-modal-lobby-body {
+    min-height: 0;
+    flex: 1 1 auto;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .game-lite-btn-gold {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-amber-600/80 px-3.5 py-2 text-[11px] font-bold uppercase tracking-wide text-white transition-all duration-150;
+    background: linear-gradient(180deg, #fbbf24 0%, #d97706 100%);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.35) inset,
+      0 2px 0 #b45309;
+  }
+
+  .game-lite-btn-gold:hover {
+    filter: brightness(1.05);
+  }
+
+  .game-lite-btn-gold:active {
+    transform: translateY(1px);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.2) inset,
+      0 1px 0 #b45309;
+  }
+
+  .game-lite-btn-sky {
+    @apply flex min-h-[2.75rem] shrink-0 items-center justify-center rounded-xl border border-sky-600 px-5 text-sm font-bold text-white transition-all duration-150 disabled:cursor-not-allowed disabled:opacity-40;
+    background: linear-gradient(180deg, #38bdf8 0%, #0284c7 100%);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.3) inset,
+      0 2px 0 #0369a1;
+  }
+
+  .game-lite-btn-sky:not(:disabled):hover {
+    filter: brightness(1.05);
+  }
+
+  .game-lite-btn-sky:not(:disabled):active {
+    transform: translateY(1px);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.2) inset,
+      0 1px 0 #0369a1;
+  }
+
+  .game-lite-tile {
+    @apply flex w-full items-center gap-3 rounded-xl border-2 border-sky-600/40 p-3 text-left transition-all duration-150;
+    background: linear-gradient(180deg, rgba(14, 116, 178, 0.2) 0%, rgba(8, 47, 73, 0.35) 100%);
+    box-shadow:
+      0 1px 0 rgba(186, 230, 253, 0.15) inset,
+      0 2px 0 rgba(3, 105, 161, 0.5);
+  }
+
+  .game-lite-tile:hover {
+    filter: brightness(1.05);
+    @apply border-sky-500/55;
+  }
+
+  .game-lite-tile:active {
+    transform: translateY(1px);
+    box-shadow: 0 1px 0 rgba(186, 230, 253, 0.1) inset;
+  }
+
+  .game-lite-icon {
+    @apply flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-sky-500/30;
+    background: linear-gradient(180deg, rgba(56, 189, 248, 0.35) 0%, rgba(2, 132, 199, 0.25) 100%);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.2) inset;
+  }
+
+  .game-lite-inset {
+    @apply flex min-h-[2.75rem] flex-1 items-center gap-2.5 rounded-xl border border-[#1a3050] px-4;
+    background: linear-gradient(180deg, rgba(0, 0, 0, 0.25) 0%, rgba(255, 255, 255, 0.03) 100%);
+    box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.4);
+  }
+
+  .game-lite-label {
+    @apply text-[10px] font-bold uppercase tracking-[0.12em] text-sky-300/75;
+  }
+
+  .game-lite-chip {
+    @apply rounded-xl border border-[#1a3050] bg-black/20 px-2.5 py-2 text-xs font-bold text-sky-200/70 transition-all duration-150;
+  }
+
+  .game-lite-chip:hover {
+    @apply border-sky-600/35 text-sky-100;
+  }
+
+  .game-lite-chip-selected {
+    @apply border-sky-500/50 bg-sky-500/15 text-white;
+  }
+
+  .game-lite-btn-ghost {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-xl border border-[#1a3050] bg-black/20 px-4 py-2.5 text-xs font-bold text-sky-200/80 transition-all duration-150;
+  }
+
+  .game-lite-btn-ghost:hover {
+    @apply border-sky-600/35 bg-black/30 text-white;
+  }
+
+  .game-lite-field {
+    @apply flex flex-col items-center gap-1 rounded-xl border border-[#1a3050] bg-black/20 p-2.5 text-center;
+  }
+
+  .game-lite-field-input {
+    @apply w-full border-0 bg-transparent p-0 text-center text-lg font-bold tabular-nums text-white outline-none;
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+
+  .game-lite-field-input::-webkit-outer-spin-button,
+  .game-lite-field-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  .game-lite-header-panel {
+    @apply mt-3 flex flex-col gap-2.5 rounded-xl border border-sky-500/20 p-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3;
+    background: linear-gradient(
+      180deg,
+      rgba(56, 189, 248, 0.08) 0%,
+      rgba(0, 0, 0, 0.15) 100%
+    );
+    box-shadow:
+      0 1px 0 rgba(186, 230, 253, 0.1) inset,
+      0 2px 0 rgba(3, 105, 161, 0.25);
+  }
+
+  .game-lite-enter-panel {
+    @apply space-y-2.5 rounded-xl border border-[#1a3050] p-3;
+    background: linear-gradient(
+      180deg,
+      rgba(21, 34, 56, 0.65) 0%,
+      rgba(15, 26, 42, 0.85) 100%
+    );
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  }
+
+  .game-lite-room-card {
+    @apply flex h-full flex-col overflow-visible rounded-xl border-2 border-[#1a3050] bg-[#152238]/90 p-4 transition-all duration-150;
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.06) inset,
+      0 2px 0 #0a1628;
+  }
+
+  .game-lite-room-card:hover {
+    @apply border-sky-600/35 bg-[#1a2a42];
+    filter: brightness(1.03);
+  }
+
+  .game-lite-badge {
+    @apply inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide;
+  }
+
+  .game-lite-badge-gold {
+    border-color: rgba(245, 158, 11, 0.45);
+    background: rgba(245, 158, 11, 0.15);
+    color: #fcd34d;
+  }
+
+  .game-lite-badge-sky {
+    border-color: rgba(56, 189, 248, 0.35);
+    background: rgba(56, 189, 248, 0.12);
+    color: #7dd3fc;
+  }
+
+  .game-lite-code {
+    @apply inline-flex items-center gap-1 rounded-md border border-white/10 bg-black/20 px-2 py-0.5 font-mono text-[10px] font-semibold text-sky-200/80;
+  }
+
+  /* Pomodoro modal — casual mobile-game UI (study-room sky palette) */
+  .pomodoro-game-modal {
+    position: relative;
+    border-radius: 1.35rem;
+    border: 4px solid #0f2744;
+    background: linear-gradient(
+      180deg,
+      #1a3352 0%,
+      #142a45 42%,
+      #0f2238 100%
+    );
+    box-shadow:
+      0 1px 0 0 rgba(186, 230, 253, 0.22) inset,
+      0 6px 0 0 #08182b,
+      0 14px 36px -8px rgba(0, 0, 0, 0.65),
+      0 0 48px -12px rgba(56, 189, 248, 0.2);
+  }
+
+  .pomodoro-game-ribbon {
+    position: relative;
+    z-index: 2;
+    margin: -0.65rem auto 0;
+    width: min(72%, 15rem);
+    border-radius: 0.85rem;
+    border: 3px solid #075985;
+    background: linear-gradient(180deg, #7dd3fc 0%, #38bdf8 38%, #0284c7 100%);
+    box-shadow:
+      0 1px 0 0 rgba(255, 255, 255, 0.55) inset,
+      0 4px 0 0 #0369a1,
+      0 8px 18px -6px rgba(14, 165, 233, 0.55);
+    padding: 0.45rem 1rem;
+    text-align: center;
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: #fff;
+    text-shadow: 0 1px 0 rgba(3, 105, 161, 0.85);
+  }
+
+  .pomodoro-game-close {
+    @apply absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-full text-white transition-all duration-150;
+    border: 2px solid #1e3a5f;
+    background: linear-gradient(180deg, #64748b 0%, #475569 100%);
+    box-shadow:
+      0 1px 0 0 rgba(255, 255, 255, 0.35) inset,
+      0 3px 0 0 #334155;
+  }
+
+  .pomodoro-game-close:hover {
+    filter: brightness(1.08);
+  }
+
+  .pomodoro-game-close:active {
+    transform: translateY(2px);
+    box-shadow:
+      0 1px 0 0 rgba(255, 255, 255, 0.2) inset,
+      0 1px 0 0 #334155;
+  }
+
+  .pomodoro-game-panel {
+    border-radius: 1rem;
+    border: 3px solid #0c2340;
+    background: linear-gradient(180deg, rgba(8, 20, 36, 0.55) 0%, rgba(5, 14, 28, 0.72) 100%);
+    box-shadow:
+      0 1px 0 0 rgba(255, 255, 255, 0.08) inset,
+      0 3px 0 0 rgba(0, 0, 0, 0.45);
+  }
+
+  .pomodoro-game-label {
+    @apply text-[10px] font-extrabold uppercase tracking-[0.14em] text-sky-200/80;
+    text-shadow: 0 1px 0 rgba(0, 0, 0, 0.45);
+  }
+
+  .pomodoro-game-chip {
+    @apply relative rounded-full border-2 border-[#1e3a5f] px-2 py-1.5 text-[11px] font-bold text-slate-100 transition-all duration-150;
+    background: linear-gradient(180deg, #4b6b8f 0%, #2d4a6b 55%, #243b57 100%);
+    box-shadow:
+      0 1px 0 0 rgba(255, 255, 255, 0.28) inset,
+      0 3px 0 0 #152a40;
+    text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
+  }
+
+  .pomodoro-game-chip:hover {
+    filter: brightness(1.06);
+  }
+
+  .pomodoro-game-chip:active {
+    transform: translateY(2px);
+    box-shadow:
+      0 1px 0 0 rgba(255, 255, 255, 0.15) inset,
+      0 1px 0 0 #152a40;
+  }
+
+  .pomodoro-game-chip-selected {
+    border-color: #0ea5e9;
+    background: linear-gradient(180deg, #38bdf8 0%, #0ea5e9 45%, #0284c7 100%);
+    box-shadow:
+      0 1px 0 0 rgba(255, 255, 255, 0.45) inset,
+      0 3px 0 0 #0369a1,
+      0 0 16px -2px rgba(56, 189, 248, 0.55);
+  }
+
+  .pomodoro-game-chip-gold {
+    border-color: #b45309;
+    background: linear-gradient(180deg, #fde68a 0%, #fbbf24 42%, #f59e0b 100%);
+    color: #fff;
+    box-shadow:
+      0 1px 0 0 rgba(255, 255, 255, 0.55) inset,
+      0 3px 0 0 #b45309,
+      0 0 14px -2px rgba(251, 191, 36, 0.45);
+    text-shadow: 0 1px 0 rgba(146, 64, 14, 0.65);
+  }
+
+  .pomodoro-game-inset {
+    border-radius: 0.75rem;
+    border: 2px solid #0c2340;
+    background: linear-gradient(180deg, rgba(0, 0, 0, 0.42) 0%, rgba(255, 255, 255, 0.04) 100%);
+    box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.55);
+  }
+
+  .pomodoro-game-input {
+    @apply w-full rounded-lg border-2 border-[#0c2340] bg-transparent px-2 py-1.5 text-center text-xs font-bold tabular-nums text-sky-100 outline-none;
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.45);
+    text-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
+  }
+
+  .pomodoro-game-resource {
+    @apply flex items-center gap-1.5 rounded-full border-2 border-[#0c2340] p-1;
+    background: linear-gradient(180deg, #1a3050 0%, #12243c 100%);
+    box-shadow:
+      0 1px 0 0 rgba(255, 255, 255, 0.1) inset,
+      0 3px 0 0 #08182b;
+  }
+
+  .pomodoro-game-resource-icon {
+    @apply flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 border-[#0c4a6e];
+    background: linear-gradient(180deg, #38bdf8 0%, #0284c7 100%);
+    box-shadow:
+      0 1px 0 0 rgba(255, 255, 255, 0.4) inset,
+      0 2px 0 0 #0369a1;
+  }
+
+  .pomodoro-game-resource-input {
+    @apply min-w-0 flex-1 border-0 bg-transparent text-center text-base font-extrabold tabular-nums text-white outline-none;
+    text-shadow: 0 1px 0 rgba(0, 0, 0, 0.45);
+  }
+
+  .pomodoro-game-btn-play {
+    @apply rounded-full border-2 border-[#b45309] py-2.5 text-xs font-extrabold uppercase tracking-wide text-white transition-all duration-150;
+    background: linear-gradient(180deg, #fde68a 0%, #fbbf24 38%, #f59e0b 72%, #ea580c 100%);
+    box-shadow:
+      0 1px 0 0 rgba(255, 255, 255, 0.55) inset,
+      0 4px 0 0 #c2410c,
+      0 8px 20px -6px rgba(251, 191, 36, 0.55);
+    text-shadow: 0 1px 0 rgba(146, 64, 14, 0.7);
+  }
+
+  .pomodoro-game-btn-play:hover {
+    filter: brightness(1.05);
+  }
+
+  .pomodoro-game-btn-play:active {
+    transform: translateY(3px);
+    box-shadow:
+      0 1px 0 0 rgba(255, 255, 255, 0.35) inset,
+      0 1px 0 0 #c2410c,
+      0 4px 12px -4px rgba(251, 191, 36, 0.4);
+  }
+
+  .pomodoro-game-btn-secondary {
+    @apply rounded-full border-2 border-[#1e3a5f] py-2.5 text-xs font-bold text-slate-100 transition-all duration-150;
+    background: linear-gradient(180deg, #6b8cb5 0%, #4a6f96 55%, #3d5f82 100%);
+    box-shadow:
+      0 1px 0 0 rgba(255, 255, 255, 0.35) inset,
+      0 4px 0 0 #2a4560;
+    text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
+  }
+
+  .pomodoro-game-btn-secondary:hover {
+    filter: brightness(1.06);
+  }
+
+  .pomodoro-game-btn-secondary:active {
+    transform: translateY(3px);
+    box-shadow:
+      0 1px 0 0 rgba(255, 255, 255, 0.2) inset,
+      0 1px 0 0 #2a4560;
+  }
+
+  .pomodoro-game-join-field {
+    @apply flex min-h-[2.75rem] flex-1 items-center gap-2.5 rounded-2xl border-[3px] border-[#0c2340] px-3;
+    background: linear-gradient(180deg, #0c1c30 0%, #162d4a 100%);
+    box-shadow:
+      inset 0 2px 6px rgba(0, 0, 0, 0.55),
+      0 2px 0 0 #08182b;
+  }
+
+  .pomodoro-game-btn-join {
+    @apply flex min-h-[2.75rem] shrink-0 items-center justify-center rounded-2xl border-2 border-[#1e3a5f] px-5 text-xs font-extrabold uppercase tracking-wide text-slate-300 transition-all duration-150;
+    background: linear-gradient(180deg, #3d5f82 0%, #2a4560 100%);
+    box-shadow:
+      0 1px 0 0 rgba(255, 255, 255, 0.12) inset,
+      0 3px 0 0 #1a3050;
+    text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
+  }
+
+  .pomodoro-game-btn-join:not(:disabled) {
+    @apply border-sky-500/60 text-white;
+    background: linear-gradient(180deg, #38bdf8 0%, #0284c7 100%);
+    box-shadow:
+      0 1px 0 0 rgba(255, 255, 255, 0.4) inset,
+      0 3px 0 0 #0369a1,
+      0 0 16px -4px rgba(56, 189, 248, 0.4);
+  }
+
+  .pomodoro-game-btn-join:not(:disabled):hover {
+    filter: brightness(1.06);
+  }
+
+  .pomodoro-game-btn-join:not(:disabled):active {
+    transform: translateY(2px);
+    box-shadow:
+      0 1px 0 0 rgba(255, 255, 255, 0.25) inset,
+      0 1px 0 0 #0369a1;
+  }
+
+  .pomodoro-game-divider {
+    height: 1px;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(56, 189, 248, 0.35),
+      transparent
+    );
+  }
+
+  .pomodoro-game-tile {
+    @apply flex w-full items-center gap-3.5 rounded-2xl border-[3px] border-[#0c4a6e] p-3.5 text-left transition-all duration-150;
+    background: linear-gradient(180deg, rgba(14, 116, 178, 0.35) 0%, rgba(8, 47, 73, 0.55) 100%);
+    box-shadow:
+      0 1px 0 0 rgba(186, 230, 253, 0.25) inset,
+      0 4px 0 0 #0369a1,
+      0 0 24px -6px rgba(56, 189, 248, 0.35);
+  }
+
+  .pomodoro-game-tile:hover {
+    filter: brightness(1.06);
+  }
+
+  .pomodoro-game-tile:active {
+    transform: translateY(3px);
+    box-shadow:
+      0 1px 0 0 rgba(186, 230, 253, 0.15) inset,
+      0 1px 0 0 #0369a1,
+      0 0 16px -6px rgba(56, 189, 248, 0.3);
+  }
+
+  .pomodoro-game-room-card {
+    @apply relative rounded-xl border border-white/10 bg-white/[0.04] p-3.5 transition-colors duration-150;
+  }
+
+  .pomodoro-game-room-card:hover {
+    @apply border-white/15 bg-white/[0.06];
+  }
+
+  .pomodoro-game-badge {
+    @apply inline-flex items-center gap-1 rounded-full border-2 px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wide;
+    box-shadow: 0 2px 0 0 rgba(0, 0, 0, 0.35);
+    text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
+  }
+
+  .pomodoro-game-badge-gold {
+    border-color: #b45309;
+    background: linear-gradient(180deg, #fde68a 0%, #f59e0b 100%);
+    color: #fff;
+  }
+
+  .pomodoro-game-badge-sky {
+    border-color: #0369a1;
+    background: linear-gradient(180deg, #7dd3fc 0%, #0284c7 100%);
+    color: #fff;
+  }
+
+  .pomodoro-game-code-pill {
+    @apply inline-flex items-center gap-1 rounded-full border-2 border-[#1e3a5f] px-2 py-0.5 font-mono text-[10px] font-bold text-sky-100;
+    background: linear-gradient(180deg, #2d4a6b 0%, #1a3050 100%);
+    box-shadow:
+      0 1px 0 0 rgba(255, 255, 255, 0.15) inset,
+      0 2px 0 0 #152a40;
+  }
+
   .glass-sidebar {
     @apply border-r text-text;
     border-color: var(--cc-border);

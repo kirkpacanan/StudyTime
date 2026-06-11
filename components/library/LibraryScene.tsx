@@ -1,13 +1,18 @@
 "use client";
 
-import { Suspense, useCallback, useMemo, useRef } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef } from "react";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls, PerspectiveCamera, ContactShadows } from "@react-three/drei";
 import { LibraryEnvironment, StudyChair } from "./LibraryEnvironment";
 import { SeatMarker } from "./SeatMarker";
 import { BlockyAvatar } from "./BlockyAvatar";
 import { OtherUserAvatar } from "./OtherUserAvatar";
-import { AVATAR_SPAWN, LIBRARY_SEATS, getSeatAvatarPosition } from "@/lib/library/seats";
+import {
+  LIBRARY_SEATS,
+  getLibraryLayout,
+  getSeatAvatarPosition,
+  type SeatPosition,
+} from "@/lib/library/seats";
 import {
   blockyAvatarFromSeed,
   parseBlockyAvatar,
@@ -25,6 +30,8 @@ type LibrarySceneProps = {
   onSeatClick: (seatId: string) => void;
   userName: string;
   userId: string;
+  /** When set, only this many seats are available in the 3D library. */
+  participantLimit?: number;
 };
 
 export function LibraryScene({
@@ -37,16 +44,32 @@ export function LibraryScene({
   onSeatClick,
   userName,
   userId,
+  participantLimit,
 }: LibrarySceneProps) {
   const controlsRef = useRef<React.ComponentRef<typeof OrbitControls>>(null);
+
+  const layout = useMemo(
+    () => getLibraryLayout(participantLimit),
+    [participantLimit],
+  );
+  const { seats, spawn, camera, fog, bounds } = layout;
+  const activeSeatIds = useMemo(() => new Set(seats.map((s) => s.id)), [seats]);
 
   const occupiedSeatIds = new Set<string>(
     [...peers.values()].map((p) => p.seatId).filter(Boolean) as string[],
   );
   if (mySeatId) occupiedSeatIds.add(mySeatId);
 
-  const mySeat = LIBRARY_SEATS.find((s) => s.id === mySeatId);
-  const avatarTarget = mySeat ? getSeatAvatarPosition(mySeat) : AVATAR_SPAWN;
+  const findSeat = useCallback(
+    (id: string | null): SeatPosition | undefined => {
+      if (!id) return undefined;
+      return seats.find((s) => s.id === id) ?? LIBRARY_SEATS.find((s) => s.id === id);
+    },
+    [seats],
+  );
+
+  const mySeat = findSeat(mySeatId);
+  const avatarTarget = mySeat ? getSeatAvatarPosition(mySeat) : spawn;
   const avatarRotation = mySeat?.rotation ?? Math.PI / 2;
 
   const myBlockyConfig = useMemo(
@@ -56,21 +79,32 @@ export function LibraryScene({
 
   const handleSeatClick = useCallback(
     (seatId: string) => {
-      if (flowState === "seat_select") onSeatClick(seatId);
+      if (flowState !== "seat_select") return;
+      if (!activeSeatIds.has(seatId)) return;
+      onSeatClick(seatId);
     },
-    [flowState, onSeatClick],
+    [flowState, activeSeatIds, onSeatClick],
   );
+
+  useEffect(() => {
+    const ctrl = controlsRef.current;
+    if (!ctrl) return;
+    ctrl.target.set(camera.target[0], camera.target[1], camera.target[2]);
+    ctrl.minDistance = camera.minDistance;
+    ctrl.maxDistance = camera.maxDistance;
+    ctrl.update();
+  }, [camera]);
 
   const showStatusBadge =
     flowState === "studying" || flowState === "session_end";
 
   const renderLocalAvatar = flowState !== "entering";
 
+  const shadowScale = Math.max(12, bounds.width * 0.65);
+
   return (
     <Canvas
       shadows={false}
-      // Cap pixel ratio so low-spec GPUs never render at full retina resolution.
-      // The scene looks identical at 1× and significantly faster on integrated GPUs.
       dpr={[1, 1.5]}
       gl={{
         antialias: false,
@@ -81,37 +115,40 @@ export function LibraryScene({
       style={{ width: "100%", height: "100%", background: "#1a1206" }}
     >
       <color attach="background" args={["#1a1206"]} />
-      {/* Fog tuned for the spacious 36×54 reading hall */}
-      <fog attach="fog" args={["#1a1206", 28, 85]} />
+      <fog attach="fog" args={["#1a1206", fog.near, fog.far]} />
 
-      <PerspectiveCamera makeDefault position={[0, 20, 22]} fov={65} near={0.1} far={110} />
+      <PerspectiveCamera
+        makeDefault
+        position={camera.position}
+        fov={65}
+        near={0.1}
+        far={110}
+      />
 
       <OrbitControls
         ref={controlsRef}
         enablePan={false}
-        minDistance={12}
-        maxDistance={42}
+        minDistance={camera.minDistance}
+        maxDistance={camera.maxDistance}
         minPolarAngle={0.12}
         maxPolarAngle={Math.PI / 2.15}
-        target={[0, 0, -3]}
+        target={camera.target}
       />
 
       <Suspense fallback={null}>
-        <LibraryEnvironment />
+        <LibraryEnvironment layout={layout} />
 
-        {/* ContactShadows replaces the GPU shadow maps we disabled above.
-            Smaller resolution + reduced blur keeps integrated GPUs fast. */}
         <ContactShadows
-          position={[1, 0.01, 0]}
+          position={[bounds.centerX, 0.01, bounds.centerZ]}
           opacity={0.35}
-          scale={22}
+          scale={shadowScale}
           blur={1.2}
           far={5}
           resolution={256}
           color="#3d2b1a"
         />
 
-        {LIBRARY_SEATS.map((seat) => {
+        {seats.map((seat) => {
           const isOccupied = occupiedSeatIds.has(seat.id);
           const isMySeat = seat.id === mySeatId;
           return (
@@ -132,7 +169,7 @@ export function LibraryScene({
         {renderLocalAvatar && (
           <BlockyAvatar
             config={myBlockyConfig}
-            spawnPosition={AVATAR_SPAWN}
+            spawnPosition={spawn}
             targetPosition={avatarTarget}
             targetRotation={avatarRotation}
             status={myStatus}
@@ -143,9 +180,7 @@ export function LibraryScene({
         )}
 
         {[...peers.values()].map((peer) => {
-          const peerSeat = peer.seatId
-            ? LIBRARY_SEATS.find((s) => s.id === peer.seatId)
-            : null;
+          const peerSeat = findSeat(peer.seatId);
           if (!peerSeat) return null;
           return (
             <OtherUserAvatar

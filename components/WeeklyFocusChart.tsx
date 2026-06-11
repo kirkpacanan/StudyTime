@@ -4,12 +4,12 @@ import { useTheme } from "@/contexts/theme-context";
 import type { DayAgg } from "@/lib/reports";
 import { BarChart3 } from "lucide-react";
 import { useId, useMemo } from "react";
+import { ChartResponsive } from "@/components/charts/ChartResponsive";
 import {
   Bar,
   CartesianGrid,
   ComposedChart,
   Line,
-  ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
@@ -90,7 +90,7 @@ export function WeeklyFocusChart({ days }: { days: DayAgg[] }) {
         <ChartLegend isDark={isDark} />
       </div>
       <div className="h-[min(22rem,calc(100vw-3rem))] min-h-[18rem] w-full sm:h-80">
-        <ResponsiveContainer width="100%" height="100%">
+        <ChartResponsive height="100%">
           <ComposedChart
             data={data}
             margin={{ top: 10, right: 10, bottom: 6, left: 4 }}
@@ -221,7 +221,7 @@ export function WeeklyFocusChart({ days }: { days: DayAgg[] }) {
               </filter>
             </defs>
           </ComposedChart>
-        </ResponsiveContainer>
+        </ChartResponsive>
       </div>
     </div>
   );

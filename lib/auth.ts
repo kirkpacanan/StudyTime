@@ -4,7 +4,6 @@ import { digestHex, randomSalt } from "./password";
 import {
   getCurrentUserId,
   getUsers,
-  saveSettings,
   saveUsers,
   setCurrentUserId,
 } from "./storage";

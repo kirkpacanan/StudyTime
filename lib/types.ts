@@ -6,12 +6,21 @@ export type FocusSampleState =
   | "sleeping";
 
 export type SessionEventType =
+  | "session_start"
   | "phone_detected"
   | "look_away_long"
+  | "drift"
+  | "off_screen"
   | "head_down_long"
   | "eyes_closed_10s"
   | "alarm_started"
   | "alarm_stopped";
+
+export type MonitoringSnapshotEventType =
+  | "session_start"
+  | "phone_detected"
+  | "off_screen"
+  | "drift";
 
 export type SessionEvent = {
   /** Session-relative timestamp (ms) */
@@ -57,21 +66,23 @@ export type StudySession = {
 
 export type FocusSensitivity = "strict" | "balanced" | "accessible";
 
-export type UserSettings = {
+/** Non-scoring preferences (Settings page). */
+export type UserPreferences = {
+  webcamEnabled: boolean;
+  notificationsEnabled: boolean;
+  phoneDetectionEnabled: boolean;
+};
+
+/** Pomodoro / break timer (Study Session page). */
+export type SessionTimerSettings = {
   focusMinutes: number;
   shortBreakMinutes: number;
   longBreakMinutes: number;
   longBreakEvery: number;
-  focusThreshold: number;
-  distractionThreshold: number;
-  webcamEnabled: boolean;
-  notificationsEnabled: boolean;
-  phoneDetectionEnabled: boolean;
-  /** How aggressively focus/drowsiness penalties apply. */
-  focusSensitivity: FocusSensitivity;
-  /** Bias head-down posture toward desk-work (notes) instead of distraction. */
-  deskWorkBias: boolean;
 };
+
+/** Persisted blob in user_settings.settings (scoring keys stripped on read). */
+export type StoredUserSettings = UserPreferences & SessionTimerSettings;
 
 export type UserRecord = {
   id: string;
@@ -82,18 +93,26 @@ export type UserRecord = {
   createdAt: string;
 };
 
-export const DEFAULT_SETTINGS: UserSettings = {
+export const DEFAULT_USER_PREFERENCES: UserPreferences = {
+  webcamEnabled: true,
+  notificationsEnabled: false,
+  phoneDetectionEnabled: true,
+};
+
+export const CLASSIC_POMODORO_SETTINGS: SessionTimerSettings = {
   focusMinutes: 25,
   shortBreakMinutes: 5,
   longBreakMinutes: 15,
   longBreakEvery: 4,
-  focusThreshold: 70,
-  distractionThreshold: 40,
-  webcamEnabled: true,
-  notificationsEnabled: false,
-  phoneDetectionEnabled: true,
-  focusSensitivity: "balanced",
-  deskWorkBias: true,
+};
+
+export const DEFAULT_SESSION_TIMER_SETTINGS: SessionTimerSettings = {
+  ...CLASSIC_POMODORO_SETTINGS,
+};
+
+export const DEFAULT_STORED_USER_SETTINGS: StoredUserSettings = {
+  ...DEFAULT_USER_PREFERENCES,
+  ...DEFAULT_SESSION_TIMER_SETTINGS,
 };
 
 export type LiveSessionSnapshot = {

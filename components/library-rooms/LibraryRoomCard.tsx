@@ -3,7 +3,7 @@
 import { cn } from "@/lib/cn";
 import type { LibraryRoomWithRole } from "@/lib/library-rooms";
 import { motion } from "framer-motion";
-import { BookOpen, Check, Copy, Lock, LogOut, Trash2, Users } from "lucide-react";
+import { BookOpen, Check, Copy, Lock, LogOut, Trash2, Unlock, Users } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
@@ -41,31 +41,133 @@ function RoomCardContent({
     CATEGORY_COLORS[room.category?.toLowerCase() ?? ""] ??
     "bg-primary/15 text-primary border-primary/20";
 
-  const surfaceCls =
-    variant === "lobby"
-      ? "border-white/10 bg-white/5 hover:bg-white/[0.08]"
-      : "border-[var(--cc-border)] bg-[var(--cc-surface)] hover:shadow-lg hover:shadow-black/10 dark:hover:shadow-black/30";
+  const isLobby = variant === "lobby";
+
+  const surfaceCls = isLobby
+    ? "pomodoro-game-room-card group"
+    : "group relative overflow-hidden rounded-2xl border border-[var(--cc-border)] bg-[var(--cc-surface)] p-4 transition-shadow hover:shadow-lg hover:shadow-black/10 dark:hover:shadow-black/30 sm:p-5";
+
+  if (isLobby) {
+    return (
+      <div className="game-lite-room-card">
+        <div className="flex flex-1 gap-3">
+          <div className="game-lite-icon !h-10 !w-10 !rounded-lg">
+            {room.image_url ? (
+              <img
+                src={room.image_url}
+                alt=""
+                className="h-full w-full rounded-lg object-cover"
+              />
+            ) : (
+              <BookOpen className="h-4 w-4 text-sky-200" />
+            )}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-2">
+              <p className="line-clamp-1 text-sm font-bold text-white">
+                {room.name}
+              </p>
+              {room.role === "host" && onDelete ? (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onDelete(room);
+                  }}
+                  className="shrink-0 rounded-md p-1 text-red-300/70 transition hover:bg-red-500/15 hover:text-red-300"
+                  aria-label={`Delete ${room.name}`}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              ) : null}
+              {room.role === "participant" && onLeave ? (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onLeave(room);
+                  }}
+                  className="shrink-0 rounded-md p-1 text-sky-300/60 transition hover:bg-white/10 hover:text-sky-100"
+                  aria-label={`Leave ${room.name}`}
+                >
+                  <LogOut className="h-3.5 w-3.5" />
+                </button>
+              ) : null}
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {room.role === "host" && (
+                <span className="game-lite-badge game-lite-badge-gold">Host</span>
+              )}
+              {room.category && (
+                <span className="game-lite-badge game-lite-badge-sky capitalize">
+                  {room.category}
+                </span>
+              )}
+              {room.is_private ? (
+                <span className="game-lite-badge border-slate-500/40 bg-slate-500/15 text-slate-300">
+                  <Lock className="h-2.5 w-2.5" />
+                  Private
+                </span>
+              ) : (
+                <span className="game-lite-badge border-emerald-500/35 bg-emerald-500/12 text-emerald-300">
+                  <Unlock className="h-2.5 w-2.5" />
+                  Public
+                </span>
+              )}
+            </div>
+            {room.description ? (
+              <p className="mt-2 line-clamp-1 text-[11px] leading-relaxed text-sky-200/50">
+                {room.description}
+              </p>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="mt-4 flex items-center justify-between border-t border-white/[0.08] pt-3">
+          <div className="flex items-center gap-1 text-[11px] font-semibold text-sky-300/60">
+            <Users className="h-3.5 w-3.5" />
+            <span>
+              {room.memberCount} / {room.participant_limit}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={onCopyCode}
+            className="game-lite-code"
+          >
+            {copied ? (
+              <Check className="h-3 w-3 text-emerald-400" />
+            ) : (
+              <Copy className="h-3 w-3" />
+            )}
+            {room.join_code}
+          </button>
+        </div>
+
+        <p className="mt-3 text-center text-[10px] font-bold uppercase tracking-wide text-amber-300/85">
+          Enter library →
+        </p>
+      </div>
+    );
+  }
 
   return (
-    <div
-      className={cn(
-        "group relative overflow-hidden rounded-2xl border p-4 transition-shadow sm:p-5",
-        surfaceCls,
-      )}
-    >
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+    <div className={surfaceCls}>
+      <div className="mb-2 flex items-start justify-between gap-2">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10">
           {room.image_url ? (
             <img
               src={room.image_url}
               alt=""
-              className="h-10 w-10 rounded-xl object-cover"
+              className="h-9 w-9 rounded-xl object-cover"
             />
           ) : (
-            <BookOpen className="h-5 w-5 text-primary" />
+            <BookOpen className="h-4 w-4 text-primary" />
           )}
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-1.5">
+        <div className="flex flex-wrap items-center justify-end gap-1">
           {room.role === "host" && onDelete ? (
             <button
               type="button"
@@ -74,7 +176,7 @@ function RoomCardContent({
                 e.stopPropagation();
                 onDelete(room);
               }}
-              className="rounded-lg p-1.5 text-muted transition hover:bg-alert/10 hover:text-alert"
+              className="rounded-lg p-1 text-muted transition hover:bg-alert/10 hover:text-alert"
               aria-label={`Delete ${room.name}`}
             >
               <Trash2 className="h-3.5 w-3.5" />
@@ -88,16 +190,21 @@ function RoomCardContent({
                 e.stopPropagation();
                 onLeave(room);
               }}
-              className="rounded-lg p-1.5 text-muted transition hover:bg-white/10 hover:text-text"
+              className="rounded-lg p-1 text-muted transition hover:bg-white/10 hover:text-text"
               aria-label={`Leave ${room.name}`}
             >
               <LogOut className="h-3.5 w-3.5" />
             </button>
           ) : null}
-          {room.is_private && (
+          {room.is_private ? (
             <span className="inline-flex items-center gap-1 rounded-full border border-slate-400/20 bg-slate-400/10 px-2 py-0.5 text-[10px] font-medium text-muted">
               <Lock className="h-2.5 w-2.5" />
               Private
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/25 bg-emerald-400/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
+              <Unlock className="h-2.5 w-2.5" />
+              Public
             </span>
           )}
           {room.role === "host" && (
@@ -118,19 +225,12 @@ function RoomCardContent({
         </div>
       </div>
 
-      <p
-        className={cn(
-          "line-clamp-1 text-sm font-semibold",
-          variant === "lobby" ? "text-slate-100" : "text-text",
-        )}
-      >
-        {room.name}
-      </p>
+      <p className="line-clamp-1 text-sm font-bold text-text">{room.name}</p>
       {room.description && (
         <p className="mt-0.5 line-clamp-2 text-xs text-muted">{room.description}</p>
       )}
 
-      <div className="mt-3 flex items-center justify-between sm:mt-4">
+      <div className="mt-2.5 flex items-center justify-between">
         <div className="flex items-center gap-1 text-xs text-muted">
           <Users className="h-3.5 w-3.5" />
           <span>
@@ -190,13 +290,24 @@ export function LibraryRoomCard({
 
   return (
     <motion.div
-      whileHover={{ y: -2 }}
+      whileHover={variant === "lobby" ? undefined : { y: -2 }}
       transition={{ type: "spring", stiffness: 400, damping: 28 }}
     >
       {onSelect ? (
-        <button type="button" onClick={() => onSelect(room.id)} className="block w-full text-left">
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => onSelect(room.id)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              onSelect(room.id);
+            }
+          }}
+          className="block w-full cursor-pointer text-left"
+        >
           {content}
-        </button>
+        </div>
       ) : (
         <Link href={`/session/room/${room.id}`} className="block">
           {content}

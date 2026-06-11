@@ -1,11 +1,11 @@
 "use client";
 
+import { SYSTEM_FOCUS_THRESHOLD } from "@/lib/focus/system-config";
 import { appendSession } from "@/lib/storage";
 import type { FocusSample, SessionEvent } from "@/lib/types";
 
 export function computeSessionStats(
   samples: FocusSample[],
-  focusThreshold: number,
   focusMs: number,
   breakMs: number,
 ) {
@@ -21,7 +21,7 @@ export function computeSessionStats(
   const avg =
     samples.reduce((a, s) => a + s.score, 0) / Math.max(1, samples.length);
   const focusedRatio =
-    (samples.filter((s) => s.score >= focusThreshold).length /
+    (samples.filter((s) => s.score >= SYSTEM_FOCUS_THRESHOLD).length /
       samples.length) *
     100;
   let distractionEvents = 0;
@@ -55,10 +55,9 @@ export async function persistStudySession(
   events: SessionEvent[],
   focusMs: number,
   breakMs: number,
-  focusThreshold: number,
   roomId?: string | null,
 ) {
-  const stats = computeSessionStats(samples, focusThreshold, focusMs, breakMs);
+  const stats = computeSessionStats(samples, focusMs, breakMs);
   const session = {
     id: crypto.randomUUID(),
     userId,

@@ -1,7 +1,6 @@
 import type { SupabaseLeaderboardRpcRow } from "@/lib/gamification/leaderboard";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
-import type { StudySession, UserSettings } from "@/lib/types";
-import { DEFAULT_SETTINGS } from "@/lib/types";
+import type { StoredUserSettings, StudySession } from "@/lib/types";
 
 type SessionRow = {
   id: string;
@@ -67,9 +66,9 @@ export async function insertStudySession(session: StudySession): Promise<void> {
   if (error) throw error;
 }
 
-export async function fetchUserSettings(
+export async function fetchUserSettingsRaw(
   userId: string,
-): Promise<UserSettings> {
+): Promise<Record<string, unknown>> {
   const supabase = getSupabaseBrowser();
   const { data, error } = await supabase
     .from("user_settings")
@@ -77,13 +76,12 @@ export async function fetchUserSettings(
     .eq("user_id", userId)
     .maybeSingle();
   if (error) throw error;
-  const partial = (data?.settings ?? {}) as Partial<UserSettings>;
-  return { ...DEFAULT_SETTINGS, ...partial };
+  return (data?.settings ?? {}) as Record<string, unknown>;
 }
 
 export async function upsertUserSettings(
   userId: string,
-  settings: UserSettings,
+  settings: StoredUserSettings,
 ): Promise<void> {
   const supabase = getSupabaseBrowser();
   const { error } = await supabase.from("user_settings").upsert(

@@ -15,7 +15,7 @@ import {
   setBootstrapped,
 } from "./storage";
 import type { FocusSampleState, StudySession, UserRecord } from "./types";
-import { DEFAULT_SETTINGS } from "./types";
+import { DEFAULT_STORED_USER_SETTINGS } from "./types";
 
 export const DEMO_EMAIL = "demo@studytime.app";
 export const DEMO_PASSWORD = "demo1234";
@@ -42,7 +42,7 @@ async function seedDemoCloudSessions(userId: string): Promise<void> {
   const existing = await getSessionsForUser(userId);
   if (existing.length > 0) return;
 
-  await saveSettings(userId, { ...DEFAULT_SETTINGS });
+  await saveSettings(userId, { ...DEFAULT_STORED_USER_SETTINGS });
 
   for (let d = 0; d < 7; d++) {
     const sessionsPerDay = Math.floor(randomBetween(1, 3.99));
@@ -192,7 +192,7 @@ export async function seedDemoData(): Promise<void> {
   // ── 4. Seed study sessions once ────────────────────────────────────────────
   if (isBootstrapped()) return;
 
-  await saveSettings(demoUser.id, { ...DEFAULT_SETTINGS });
+  await saveSettings(demoUser.id, { ...DEFAULT_STORED_USER_SETTINGS });
 
   for (let d = 0; d < 7; d++) {
     const sessionsPerDay = Math.floor(randomBetween(1, 3.99));

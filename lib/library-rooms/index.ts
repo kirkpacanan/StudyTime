@@ -17,7 +17,13 @@ export type LibraryRoomAnalyticsRow = {
   avg_focus: number;
   total_focus_ms: number;
   low_focus_count: number;
+  phone_events: number;
+  drift_events: number;
+  off_screen_events: number;
+  last_session_at: string | null;
 };
+
+export type { PublicLibraryRoomRow as PublicLibraryRoom } from "@/lib/focus-hub/client";
 
 export {
   getMyRooms as getMyLibraryRooms,
@@ -25,6 +31,8 @@ export {
   getRoomRole as getLibraryRoomRole,
   createRoom as createLibraryRoom,
   joinRoom as joinLibraryRoom,
+  getPublicRooms as getPublicLibraryRooms,
+  joinPublicRoom as joinPublicLibraryRoom,
   archiveRoom as archiveLibraryRoom,
   getRoomMembers as getLibraryRoomMembers,
   removeParticipant as removeLibraryRoomParticipant,

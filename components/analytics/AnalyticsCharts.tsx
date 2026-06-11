@@ -3,6 +3,7 @@
 import { useTheme } from "@/contexts/theme-context";
 import type { DistributionSlice, TrendPoint } from "@/lib/analytics";
 import { useMemo } from "react";
+import { ChartResponsive } from "@/components/charts/ChartResponsive";
 import {
   Area,
   AreaChart,
@@ -12,7 +13,6 @@ import {
   Cell,
   Pie,
   PieChart,
-  ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
@@ -60,7 +60,7 @@ export function FocusTrendChart({ data }: { data: TrendPoint[] }) {
 
   return (
     <div className="h-[18rem] w-full">
-      <ResponsiveContainer width="100%" height="100%">
+      <ChartResponsive height="100%">
         <AreaChart data={series} margin={{ top: 10, right: 12, bottom: 6, left: 0 }}>
           <defs>
             <linearGradient id="focusTrendFill" x1="0" y1="0" x2="0" y2="1">
@@ -96,7 +96,7 @@ export function FocusTrendChart({ data }: { data: TrendPoint[] }) {
             animationDuration={800}
           />
         </AreaChart>
-      </ResponsiveContainer>
+      </ChartResponsive>
     </div>
   );
 }
@@ -126,7 +126,7 @@ export function FocusDistributionChart({
   return (
     <div className="flex flex-col items-center gap-4 sm:flex-row">
       <div className="h-[12rem] w-[12rem] shrink-0">
-        <ResponsiveContainer width="100%" height="100%">
+        <ChartResponsive height="100%">
           <PieChart>
             <Pie
               data={data}
@@ -146,7 +146,7 @@ export function FocusDistributionChart({
               formatter={(v, name) => [`${v} sessions`, name]}
             />
           </PieChart>
-        </ResponsiveContainer>
+        </ChartResponsive>
       </div>
       <ul className="w-full space-y-2">
         {data.map((d) => (
@@ -187,7 +187,7 @@ export function DistractionBarChart({
 
   return (
     <div className="h-[16rem] w-full">
-      <ResponsiveContainer width="100%" height="100%">
+      <ChartResponsive height="100%">
         <BarChart data={data} margin={{ top: 10, right: 8, bottom: 6, left: 0 }}>
           <CartesianGrid strokeDasharray="4 6" stroke={t.grid} vertical={false} />
           <XAxis
@@ -220,7 +220,7 @@ export function DistractionBarChart({
             animationDuration={800}
           />
         </BarChart>
-      </ResponsiveContainer>
+      </ChartResponsive>
     </div>
   );
 }

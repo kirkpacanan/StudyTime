@@ -20,7 +20,10 @@ import {
   normalizeSharpness,
 } from "@/lib/face-presence-quality";
 import { FaceMetricsSmoother } from "@/lib/vision/temporal-smooth";
-import type { FocusSensitivity } from "@/lib/types";
+import {
+  SYSTEM_DISTRACTION_THRESHOLD,
+  SYSTEM_FOCUS_THRESHOLD,
+} from "@/lib/focus/system-config";
 import {
   detectFaceLandmarks,
   disposeFaceLandmarker,
@@ -31,20 +34,36 @@ import {
 import { useFaceLandmarkerPrimary } from "@/lib/vision/feature-flag";
 import { MP_LEFT_EYE_EAR, MP_RIGHT_EYE_EAR } from "@/lib/vision/landmark-indices";
 import { withMediapipeQuiet, withMediapipeQuietAsync } from "@/lib/mediapipe-quiet";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
 
 type Props = {
   enabled: boolean;
   active: boolean;
   phoneDetectionEnabled?: boolean;
-  focusThreshold: number;
-  distractionThreshold: number;
-  focusSensitivity?: FocusSensitivity;
-  deskWorkBias?: boolean;
   onSample: (sample: FocusFrameResult) => void;
+  /** Optional ref to capture a JPEG frame from the live webcam (for room monitoring). */
+  frameCaptureRef?: MutableRefObject<(() => Promise<Blob | null>) | null>;
   /** Glass footer styling for session library overlay */
   variant?: "default" | "glass";
 };
+
+async function captureVideoFrame(
+  video: HTMLVideoElement | null,
+): Promise<Blob | null> {
+  if (!video || video.readyState < 2 || !video.videoWidth) return null;
+  const maxW = 640;
+  const w = Math.min(maxW, video.videoWidth);
+  const h = Math.round((w * video.videoHeight) / video.videoWidth);
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  ctx.drawImage(video, 0, 0, w, h);
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => resolve(blob), "image/jpeg", 0.72);
+  });
+}
 
 const AWAY_MS = 5000;
 /** Brief dropout hold — keeps face lock on noisy frames. */
@@ -231,11 +250,8 @@ export function FocusCamera({
   enabled,
   active,
   phoneDetectionEnabled = true,
-  focusThreshold,
-  distractionThreshold,
-  focusSensitivity = "balanced",
-  deskWorkBias = true,
   onSample,
+  frameCaptureRef,
   variant = "default",
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -657,8 +673,8 @@ export function FocusCamera({
           eyeBlinkShutR = signals.eyeBlinkShutR;
 
           base = scoreFocusFromFaceSignals(signals, {
-            focusThreshold,
-            distractionThreshold,
+            focusThreshold: SYSTEM_FOCUS_THRESHOLD,
+            distractionThreshold: SYSTEM_DISTRACTION_THRESHOLD,
             prevSmoothed: smoothedRef.current,
             smoothAlpha: 0.28,
             trackingConfidence,
@@ -710,8 +726,8 @@ export function FocusCamera({
                 det.landmarks as unknown as Landmark68,
                 expressionsToRecord(det.expressions),
                 {
-                  focusThreshold,
-                  distractionThreshold,
+                  focusThreshold: SYSTEM_FOCUS_THRESHOLD,
+                  distractionThreshold: SYSTEM_DISTRACTION_THRESHOLD,
                   prevSmoothed: null,
                   smoothAlpha: 0.28,
                   trackingConfidence,
@@ -769,8 +785,6 @@ export function FocusCamera({
           eyeReliabilityL: hasTrackedFace ? eyeReliabilityL : undefined,
           eyeReliabilityR: hasTrackedFace ? eyeReliabilityR : undefined,
           signalMode: base.signalMode,
-          deskWorkBias,
-          focusSensitivity,
           eyesScore: base.eyesScore,
           faceScore: base.faceScore,
           yaw: base.yaw,
@@ -840,12 +854,16 @@ export function FocusCamera({
     phoneDetectionEnabled,
     error,
     modelsReady,
-    focusThreshold,
-    distractionThreshold,
-    focusSensitivity,
-    deskWorkBias,
     runPhoneDetection,
   ]);
+
+  useEffect(() => {
+    if (!frameCaptureRef) return;
+    frameCaptureRef.current = () => captureVideoFrame(videoRef.current);
+    return () => {
+      frameCaptureRef.current = null;
+    };
+  }, [frameCaptureRef]);
 
   const limitedLabel = signalModeLabel(signalModeUi);
 

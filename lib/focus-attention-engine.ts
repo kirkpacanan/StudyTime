@@ -1,4 +1,10 @@
-import type { FocusSampleState, FocusSensitivity } from "@/lib/types";
+import {
+  SYSTEM_DESK_WORK_BIAS,
+  SYSTEM_DISTRACTION_THRESHOLD,
+  SYSTEM_FOCUS_SENSITIVITY,
+  SYSTEM_FOCUS_THRESHOLD,
+} from "@/lib/focus/system-config";
+import type { FocusSampleState } from "@/lib/types";
 import type { SignalMode } from "@/lib/focus-detection";
 import { detectSleepEyeState } from "@/lib/vision/sleep-eye-detection";
 import {
@@ -44,8 +50,6 @@ export type AttentionMeasurements = {
   eyeReliabilityL?: number;
   eyeReliabilityR?: number;
   signalMode?: SignalMode;
-  deskWorkBias?: boolean;
-  focusSensitivity?: FocusSensitivity;
   /** 0–100 */
   eyesScore: number;
   /** 0–100 */
@@ -173,7 +177,7 @@ export class FocusAttentionEngine {
 
     // --- Eye closure / drowsiness: align with Drowsiness_Detection.py (dlib 68 landmarks + EAR) ---
     // thresh = 0.25, frame_check = 20 consecutive low-EAR frames before alert.
-    const sensitivity = m.focusSensitivity ?? "balanced";
+    const sensitivity = SYSTEM_FOCUS_SENSITIVITY;
     const earThreshBase =
       sensitivity === "strict" ? 0.27 : sensitivity === "accessible" ? 0.22 : 0.25;
     const tc = clamp01(m.trackingConfidence ?? 1);
@@ -396,7 +400,7 @@ export class FocusAttentionEngine {
       lookingAwayMs: this.lookingAwayMs,
       blinkRatePerMin,
       trackingConfidence: tc,
-      deskWorkBias: m.deskWorkBias !== false,
+      deskWorkBias: SYSTEM_DESK_WORK_BIAS,
     });
 
     const deskWork = isDeskWorkMode(studyContext);
@@ -649,8 +653,8 @@ export class FocusAttentionEngine {
 
     // final state mapping (unless already forced above)
     if (state !== "away" && state !== "sleeping" && state !== "distracted") {
-      if (smoothed >= 74 && engagedNow) state = "focused";
-      else if (smoothed < 45) state = "distracted";
+      if (smoothed >= SYSTEM_FOCUS_THRESHOLD && engagedNow) state = "focused";
+      else if (smoothed < SYSTEM_DISTRACTION_THRESHOLD) state = "distracted";
       else state = "drifting";
     }
 

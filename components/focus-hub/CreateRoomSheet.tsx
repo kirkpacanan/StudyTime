@@ -2,11 +2,31 @@
 
 import { createRoom } from "@/lib/focus-hub/client";
 import type { FocusHubRoom } from "@/lib/focus-hub/types";
+import {
+  clampParticipantLimit,
+  MAX_LIBRARY_PARTICIPANTS,
+  MIN_LIBRARY_PARTICIPANTS,
+} from "@/lib/library/seats";
 import { AnimatePresence, motion } from "framer-motion";
 import { GraduationCap, Lock, Unlock, X } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 const CATEGORIES = ["Education", "Business", "Training", "Meeting", "Other"];
+
+const PRIVACY_OPTIONS = [
+  {
+    value: false,
+    label: "Public",
+    icon: Unlock,
+    helper: "Listed in the lobby — anyone can browse and join.",
+  },
+  {
+    value: true,
+    label: "Private",
+    icon: Lock,
+    helper: "Hidden from the lobby — share your room code to invite others.",
+  },
+] as const;
 
 type CreateRoomSheetProps = {
   open: boolean;
@@ -18,10 +38,25 @@ export function CreateRoomSheet({ open, onClose, onCreated }: CreateRoomSheetPro
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState("");
-  const [limit, setLimit] = useState("50");
+  const [limit, setLimit] = useState("10");
   const [isPrivate, setIsPrivate] = useState(false);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  const seatCount = useMemo(
+    () => clampParticipantLimit(parseInt(limit, 10) || MIN_LIBRARY_PARTICIPANTS),
+    [limit],
+  );
+
+  function handleLimitChange(raw: string) {
+    if (raw === "") {
+      setLimit("");
+      return;
+    }
+    const n = parseInt(raw, 10);
+    if (Number.isNaN(n)) return;
+    setLimit(String(clampParticipantLimit(n)));
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -33,13 +68,16 @@ export function CreateRoomSheet({ open, onClose, onCreated }: CreateRoomSheetPro
         name: name.trim(),
         description: description.trim() || undefined,
         category: category || undefined,
-        participant_limit: Math.max(2, parseInt(limit, 10) || 50),
+        participant_limit: seatCount,
         is_private: isPrivate,
       });
       onCreated(room);
       onClose();
-      // Reset
-      setName(""); setDescription(""); setCategory(""); setLimit("50"); setIsPrivate(false);
+      setName("");
+      setDescription("");
+      setCategory("");
+      setLimit("10");
+      setIsPrivate(false);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed to create room.");
     } finally {
@@ -48,7 +86,7 @@ export function CreateRoomSheet({ open, onClose, onCreated }: CreateRoomSheetPro
   }
 
   const inputCls =
-    "w-full rounded-xl border border-[var(--cc-border)] bg-white/5 px-3 py-2.5 text-sm text-text placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-primary/40";
+    "game-lite-inset w-full !min-h-[2.75rem] text-sm text-white placeholder:text-sky-200/40 focus-within:ring-2 focus-within:ring-sky-500/30";
 
   return (
     <AnimatePresence>
@@ -56,7 +94,7 @@ export function CreateRoomSheet({ open, onClose, onCreated }: CreateRoomSheetPro
         <>
           <motion.div
             key="overlay"
-            className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
+            className="fixed inset-0 z-40 bg-black/55 backdrop-blur-sm"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -64,37 +102,35 @@ export function CreateRoomSheet({ open, onClose, onCreated }: CreateRoomSheetPro
           />
           <motion.div
             key="sheet"
-            className="fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col bg-[var(--cc-bg)] shadow-2xl"
+            className="game-lite-modal fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col rounded-none border-y-0 border-r-0 shadow-2xl"
             initial={{ x: "100%" }}
             animate={{ x: 0 }}
             exit={{ x: "100%" }}
             transition={{ type: "spring", stiffness: 320, damping: 34 }}
           >
-            {/* Header */}
-            <div className="flex items-center justify-between border-b border-[var(--cc-border)] px-6 py-4">
+            <div className="flex items-center justify-between border-b border-white/[0.08] px-6 py-4">
               <div className="flex items-center gap-2.5">
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
-                  <GraduationCap className="h-4 w-4 text-primary" />
+                <div className="game-lite-icon !h-8 !w-8 !rounded-lg">
+                  <GraduationCap className="h-4 w-4 text-sky-200" />
                 </div>
-                <h2 className="text-base font-semibold text-text">Create Room</h2>
+                <h2 className="text-base font-bold text-white">Create Room</h2>
               </div>
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-lg p-1.5 text-muted transition hover:bg-white/10 hover:text-text"
+                className="rounded-lg p-1.5 text-sky-200/60 transition hover:bg-white/10 hover:text-white"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
-            {/* Form */}
             <form
               onSubmit={(e) => void handleSubmit(e)}
               className="flex flex-1 flex-col gap-5 overflow-y-auto px-6 py-6"
             >
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-muted">
-                  Room Name <span className="text-alert">*</span>
+                <label className="game-lite-label mb-1.5 block">
+                  Room Name <span className="text-red-400">*</span>
                 </label>
                 <input
                   className={inputCls}
@@ -106,11 +142,9 @@ export function CreateRoomSheet({ open, onClose, onCreated }: CreateRoomSheetPro
               </div>
 
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-muted">
-                  Description
-                </label>
+                <label className="game-lite-label mb-1.5 block">Description</label>
                 <textarea
-                  className={inputCls + " min-h-[4rem] resize-none"}
+                  className={inputCls + " !min-h-[5rem] !items-start resize-none py-2.5"}
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="What is this room for?"
@@ -119,17 +153,17 @@ export function CreateRoomSheet({ open, onClose, onCreated }: CreateRoomSheetPro
               </div>
 
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-muted">
-                  Category
-                </label>
+                <label className="game-lite-label mb-1.5 block">Category</label>
                 <select
-                  className={inputCls}
+                  className={inputCls + " appearance-none"}
                   value={category}
                   onChange={(e) => setCategory(e.target.value)}
                 >
-                  <option value="">Select category…</option>
+                  <option value="" className="bg-[#152238]">
+                    Select category…
+                  </option>
                   {CATEGORIES.map((c) => (
-                    <option key={c} value={c.toLowerCase()}>
+                    <option key={c} value={c.toLowerCase()} className="bg-[#152238]">
                       {c}
                     </option>
                   ))}
@@ -137,49 +171,69 @@ export function CreateRoomSheet({ open, onClose, onCreated }: CreateRoomSheetPro
               </div>
 
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-muted">
-                  Participant Limit
-                </label>
+                <label className="game-lite-label mb-1.5 block">Participant Limit</label>
                 <input
                   type="number"
-                  min={2}
-                  max={200}
+                  min={MIN_LIBRARY_PARTICIPANTS}
+                  max={MAX_LIBRARY_PARTICIPANTS}
                   className={inputCls}
                   value={limit}
-                  onChange={(e) => setLimit(e.target.value)}
+                  onChange={(e) => handleLimitChange(e.target.value)}
+                  onBlur={() => {
+                    if (limit === "") setLimit(String(MIN_LIBRARY_PARTICIPANTS));
+                  }}
                 />
+                <p className="mt-1.5 text-xs text-sky-200/50">
+                  Up to {MAX_LIBRARY_PARTICIPANTS} seats — matches library layout.
+                </p>
+                <p className="mt-1 text-xs font-medium text-sky-300/80">
+                  This room will have <span className="text-white">{seatCount}</span> seats.
+                </p>
               </div>
 
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-muted">
-                  Privacy
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  {[false, true].map((priv) => (
-                    <button
-                      key={String(priv)}
-                      type="button"
-                      onClick={() => setIsPrivate(priv)}
-                      className={
-                        "flex items-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-medium transition " +
-                        (isPrivate === priv
-                          ? "border-primary/40 bg-primary/10 text-primary"
-                          : "border-[var(--cc-border)] bg-white/5 text-muted hover:text-text")
-                      }
-                    >
-                      {priv ? (
-                        <Lock className="h-4 w-4" />
-                      ) : (
-                        <Unlock className="h-4 w-4" />
-                      )}
-                      {priv ? "Private" : "Public"}
-                    </button>
-                  ))}
+                <label className="game-lite-label mb-2 block">Privacy</label>
+                <div className="grid gap-2">
+                  {PRIVACY_OPTIONS.map(({ value, label, icon: Icon, helper }) => {
+                    const selected = isPrivate === value;
+                    return (
+                      <button
+                        key={String(value)}
+                        type="button"
+                        onClick={() => setIsPrivate(value)}
+                        className={
+                          "rounded-xl border p-3 text-left transition " +
+                          (selected
+                            ? "border-sky-500/50 bg-sky-500/10"
+                            : "border-[#1a3050] bg-black/20 hover:border-sky-600/30")
+                        }
+                      >
+                        <div className="flex items-center gap-2">
+                          <Icon
+                            className={
+                              "h-4 w-4 " + (selected ? "text-sky-300" : "text-sky-200/50")
+                            }
+                          />
+                          <span
+                            className={
+                              "text-sm font-bold " +
+                              (selected ? "text-white" : "text-sky-200/70")
+                            }
+                          >
+                            {label}
+                          </span>
+                        </div>
+                        <p className="mt-1 pl-6 text-xs leading-relaxed text-sky-200/50">
+                          {helper}
+                        </p>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
               {err && (
-                <p className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-400">
+                <p className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-300">
                   {err}
                 </p>
               )}
@@ -188,7 +242,7 @@ export function CreateRoomSheet({ open, onClose, onCreated }: CreateRoomSheetPro
                 <button
                   type="submit"
                   disabled={loading || !name.trim()}
-                  className="w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-white shadow transition hover:bg-primary/90 disabled:opacity-50"
+                  className="game-lite-btn-sky w-full !min-h-[2.75rem] disabled:opacity-50"
                 >
                   {loading ? "Creating…" : "Create Room"}
                 </button>
